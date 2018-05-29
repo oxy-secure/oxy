@@ -16,9 +16,9 @@ pub enum OxyMessage {
 	FileData { reference: u64, data: Vec<u8> },
 	RemoteOpen { addr: String },
 	RemoteBind { addr: String },
-    RemoteStreamData { reference: u64, data: Vec<u8> },
-    LocalStreamData { reference: u64, data: Vec<u8> },
+	RemoteStreamData { reference: u64, data: Vec<u8> },
+	LocalStreamData { reference: u64, data: Vec<u8> },
 	BindConnectionAccepted { reference: u64 },
-    TunnelRequest { tap: bool, name: String },
-    TunnelData { reference: u64, data: Vec<u8> },
+	TunnelRequest { tap: bool, name: String },
+	TunnelData { reference: u64, data: Vec<u8> },
 }
