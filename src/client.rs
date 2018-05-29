@@ -4,7 +4,7 @@ use std::net::{TcpListener, TcpStream};
 
 pub fn run() {
 	let stream = TcpStream::connect(&arg::destination()).unwrap();
-	trace!("Connected");
+	info!("Connected");
 	Oxy::run(stream);
 }
 

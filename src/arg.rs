@@ -1,4 +1,6 @@
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use env_logger;
+use std::env;
 use transportation::EncryptionPerspective;
 
 lazy_static! {
@@ -122,6 +124,10 @@ pub fn batched_metacommands() -> Vec<String> {
 
 pub fn process() {
 	&*MATCHES;
+	if env::var("RUST_LOG").is_err() {
+		env::set_var("RUST_LOG", "oxy=info");
+	}
+	env_logger::try_init().ok();
 }
 
 pub fn mode() -> String {
