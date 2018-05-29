@@ -59,7 +59,12 @@ fn create_matches() -> ArgMatches<'static> {
 		.takes_value(true)
 		.multiple(true)
 		.help("A command to run after the connection is established. The same commands from the F10 prompt.");
-	let client_args = vec![key.clone(), peer.clone(), metacommand.clone()];
+	let keyfile = Arg::with_name("keyfile")
+        .long("keyfile")
+        .takes_value(true)
+        .help("The private keyfile used for connection authentication. Defaults to ./server_key for servers and ./client_key for clients. Generated with oxy keygen.");
+	let client_args = vec![key.clone(), peer.clone(), metacommand.clone(), keyfile.clone()];
+	let server_args = vec![key.clone(), peer.clone(), keyfile.clone()];
 	App::new("oxy")
 		.version(crate_version!())
 		.author(crate_authors!())
@@ -73,27 +78,23 @@ fn create_matches() -> ArgMatches<'static> {
 		.subcommand(
 			SubCommand::with_name("reexec")
 				.about("Service a single oxy connection. Communicates on stdio by default.")
-				.arg(peer.clone())
-				.arg(key.clone()),
+				.args(&server_args),
 		)
 		.subcommand(
 			SubCommand::with_name("server")
 				.about("Accept TCP connections then reexec for each one.")
-				.arg(peer.clone())
-				.arg(key.clone()),
+				.args(&server_args),
 		)
 		.subcommand(
 			SubCommand::with_name("serve-one")
 				.about("Accept a single TCP connection, then service it in the same process.")
-				.arg(peer.clone())
-				.arg(key.clone())
+				.args(&server_args)
 				.arg(Arg::with_name("bind-address").index(1).default_value("0.0.0.0:2600")),
 		)
 		.subcommand(
 			SubCommand::with_name("reverse-server")
 				.about("Connect out to a listening client. Then, be a server.")
-				.arg(peer.clone())
-				.arg(key.clone())
+				.args(&server_args)
 				.arg(Arg::with_name("destination").index(1)),
 		)
 		.subcommand(

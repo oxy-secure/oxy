@@ -4,7 +4,7 @@ use std::{
 	fs::File, io::{stdout, Read, Write}, path::Path,
 };
 use transportation::{
-	ring::{self, signature::Ed25519KeyPair}, untrusted,
+	ring::{self, signature::Ed25519KeyPair}, untrusted, EncryptionPerspective,
 };
 
 pub fn keygen_command() {
@@ -27,6 +27,16 @@ pub fn load_key<P: AsRef<Path>>(path: P) -> Ed25519KeyPair {
 	let input = untrusted::Input::from(&buf);
 	let key = Ed25519KeyPair::from_pkcs8(input).unwrap();
 	key
+}
+
+pub fn load_private_key() -> Ed25519KeyPair {
+	if let Some(keypath) = arg::keyfile() {
+		return load_key(&keypath);
+	}
+	match arg::perspective() {
+		EncryptionPerspective::Alice => load_key("client_key"),
+		EncryptionPerspective::Bob => load_key("server_key"),
+	}
 }
 
 pub fn make_key() -> (Vec<u8>, Ed25519KeyPair) {
