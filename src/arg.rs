@@ -171,6 +171,7 @@ pub fn perspective() -> EncryptionPerspective {
 	use transportation::EncryptionPerspective::{Alice, Bob};
 	match mode().as_str() {
 		"reexec" => Bob,
+		"server" => Bob,
 		"serve-one" => Bob,
 		"reverse-server" => Bob,
 		_ => Alice,

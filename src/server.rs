@@ -1,12 +1,44 @@
 use arg;
 use core::Oxy;
+use std::net::{TcpListener, TcpStream};
 
 pub fn run() {
+	#[cfg(unix)]
+	{
+		let listener = TcpListener::bind(arg::bind_address()).unwrap();
+		info!("Listening on {:?}", arg::bind_address());
+		loop {
+			if let Ok((stream, _)) = listener.accept() {
+				fork_and_handle(stream);
+			} else {
+				warn!("Error receiving connection?");
+			}
+		}
+	}
+	#[cfg(windows)]
 	unimplemented!();
 }
 
+fn fork_and_handle(stream: TcpStream) {
+	#[cfg(unix)]
+	{
+		use nix::unistd::{fork, ForkResult::*};
+
+		match fork() {
+			Ok(Parent { .. }) => ::std::mem::drop(stream),
+			Ok(Child) => {
+				Oxy::run(stream);
+				#[allow(unreachable_code)]
+				{
+					unreachable!();
+				}
+			}
+			Err(_) => warn!("Fork error"),
+		}
+	}
+}
+
 pub fn serve_one() {
-	use std::net::TcpListener;
 	let stream;
 	{
 		let listener = TcpListener::bind(arg::bind_address()).unwrap();
@@ -18,7 +50,6 @@ pub fn serve_one() {
 }
 
 pub fn reverse_server() {
-	use std::net::TcpStream;
 	let stream = TcpStream::connect(&arg::destination()).unwrap();
 	trace!("Connected");
 	Oxy::run(stream);
