@@ -8,6 +8,7 @@ extern crate lazy_static;
 extern crate serde_derive;
 extern crate base64;
 extern crate byteorder;
+extern crate env_logger;
 #[cfg(unix)]
 extern crate libc;
 #[cfg(unix)]
