@@ -502,6 +502,9 @@ impl Oxy {
 			let parts = shlex::split(&command).unwrap();
 			self.handle_metacommand(parts);
 		}
+		if ::termion::is_tty(&::std::io::stdout()) {
+			self.handle_metacommand(vec![format!("pty")]);
+		}
 	}
 
 	fn notify_socks_bind(&self, token: u64) {
