@@ -41,6 +41,11 @@ impl Ui {
 			let ui2 = ui.clone();
 			ui.underlying.set_notify(Rc::new(ui2));
 
+			let old_panic_hook = ::std::panic::take_hook();
+			::std::panic::set_hook(Box::new(move |x| {
+				::std::process::Command::new("stty").arg("cooked").arg("echo").spawn().ok();
+				old_panic_hook(x)
+			}));
 			ui.raw();
 
 			ui
