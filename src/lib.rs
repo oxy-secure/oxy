@@ -17,11 +17,13 @@ extern crate num;
 extern crate shlex;
 #[cfg(unix)]
 extern crate termion;
+extern crate textwrap;
 extern crate transportation;
 
 mod arg;
 mod client;
 mod core;
+mod guide;
 mod keys;
 mod message;
 #[cfg(unix)]
@@ -44,6 +46,7 @@ pub fn run() {
 		"reverse-server" => server::reverse_server(),
 		"reverse-client" => client::reverse_client(),
 		"keygen" => keys::keygen_command(),
+		"guide" => guide::print_guide(),
 		_ => unreachable!(),
 	}
 }

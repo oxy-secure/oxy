@@ -8,7 +8,7 @@ lazy_static! {
 	pub static ref MATCHES: ArgMatches<'static> = create_matches();
 }
 
-const REAL_SUBCOMMANDS: [&str; 8] = [
+const REAL_SUBCOMMANDS: [&str; 9] = [
 	"client",
 	"reexec",
 	"server",
@@ -17,6 +17,7 @@ const REAL_SUBCOMMANDS: [&str; 8] = [
 	"reverse-server",
 	"reverse-client",
 	"keygen",
+	"guide",
 ];
 
 fn get_first_positional_argument() -> Option<String> {
@@ -107,6 +108,7 @@ fn create_matches() -> ArgMatches<'static> {
 				.about("Generate a keypair")
 				.arg(Arg::with_name("keyfile").index(1)),
 		)
+		.subcommand(SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."))
 		.get_matches_from(&*CLEAN_ARGS)
 }
 
