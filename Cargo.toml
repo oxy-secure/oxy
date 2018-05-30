@@ -26,6 +26,7 @@ rmp-serde = "0.13"
 nix = "0.10.0"
 libc = "0.2.40"
 base64 = "0.9"
+textwrap = { version = "0.10", features = ["term_size", "hyphenation"] }
 
 [target.'cfg(unix)'.dependencies]
 termion = "1.5.1"
