@@ -30,6 +30,7 @@ mod reexec;
 mod server;
 mod tuntap;
 mod ui;
+mod wordlist;
 
 pub fn run() {
 	trace!("Oxy starting");
