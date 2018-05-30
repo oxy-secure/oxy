@@ -51,8 +51,7 @@ fn create_matches() -> ArgMatches<'static> {
 		.short("k")
 		.long("static-key")
 		.takes_value(true)
-		.help("A pre-shared static key. Must match the static key used by the host. Provides quantum resistance!")
-		.required(true);
+		.help("A pre-shared static key. Must match the static key used by the host. Provides quantum resistance!");
 	let metacommand = Arg::with_name("metacommand")
 		.short("m")
 		.long("metacommand")
@@ -63,7 +62,7 @@ fn create_matches() -> ArgMatches<'static> {
         .long("keyfile")
         .takes_value(true)
         .help("The private keyfile used for connection authentication. Defaults to ./server_key for servers and ./client_key for clients. Generated with oxy keygen.");
-	let client_args = vec![key.clone(), peer.clone(), metacommand.clone(), keyfile.clone()];
+	let client_args = vec![key.clone().required(true), peer.clone(), metacommand.clone(), keyfile.clone()];
 	let server_args = vec![key.clone(), peer.clone(), keyfile.clone()];
 	App::new("oxy")
 		.version(crate_version!())
@@ -129,6 +128,15 @@ pub fn process() {
 		env::set_var("RUST_LOG", "oxy=info");
 	}
 	env_logger::try_init().ok();
+	if full_mode() {
+		key();
+		let private_key = ::keys::load_private_key();
+		info!("Your public key fingerprint is: {}", ::base64::encode(private_key.public_key_bytes()));
+	}
+}
+
+pub fn full_mode() -> bool {
+	!["keygen", "guide"].contains(&mode().as_str())
 }
 
 pub fn mode() -> String {
@@ -144,13 +152,25 @@ pub fn peer() -> String {
 		.to_string()
 }
 
+lazy_static! {
+	static ref GENERATED_KEY: String = init_psk();
+}
+
+fn init_psk() -> String {
+	let key = ::keys::make_psk();
+	info!("No PSK provided. Using generated PSK: {}", key);
+	key
+}
+
 pub fn key() -> String {
-	MATCHES
-		.subcommand_matches(mode())
-		.unwrap()
-		.value_of("static key")
-		.expect("You must provide a pre-shared static key! (-k)")
-		.to_string()
+	let key = MATCHES.subcommand_matches(mode()).unwrap().value_of("static key");
+	if key.is_some() {
+		return key.unwrap().to_string();
+	}
+	if perspective() == EncryptionPerspective::Alice {
+		panic!("You must provide a pre-shared static key! (-k)");
+	}
+	GENERATED_KEY.clone()
 }
 
 pub fn destination() -> String {
