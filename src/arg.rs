@@ -68,7 +68,7 @@ fn create_matches() -> ArgMatches<'static> {
 	App::new("oxy")
 		.version(crate_version!())
 		.author(crate_authors!())
-		.setting(AppSettings::SubcommandRequired)
+		.setting(AppSettings::SubcommandRequiredElseHelp)
 		.subcommand(
 			SubCommand::with_name("client")
 				.about("Connect to an Oxy server.")
