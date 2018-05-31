@@ -1,10 +1,10 @@
 mod kex;
+mod metacommands;
 
 use self::kex::{KexData, NakedState};
 use arg::{self, perspective};
 use byteorder::{self, ByteOrder};
 use message::OxyMessage::{self, *};
-use num;
 #[cfg(unix)]
 use pty::Pty;
 use shlex;
@@ -282,91 +282,6 @@ impl Oxy {
 			TunnelData { reference, data } => {
 				let borrow = self.tuntaps.borrow_mut();
 				borrow.get(&reference).unwrap().send(&data);
-			}
-			_ => (),
-		}
-	}
-
-	fn handle_metacommand(&self, mut parts: Vec<String>) {
-		match parts[0].as_str() {
-			"sh" => {
-				self.send(BasicCommand { command: parts.remove(1) }); // TODO: ERROR_HANDLING
-			}
-			"pty" => {
-				let command = if parts.len() > 1 { parts.remove(1) } else { "bash".to_string() };
-				self.send(PtyRequest { command });
-			}
-			"download" => {
-				debug!("File transfer started");
-				let id = self.send(DownloadRequest { path: parts.remove(1) }); // TODO: ERROR_HANDLING
-				let file = File::create(parts.remove(1)).unwrap();
-				self.transfers_in.borrow_mut().insert(id, file);
-			}
-			"upload" => {
-				let id = self.send(UploadRequest { path: parts.remove(2) });
-				let file = File::open(parts.remove(1)).unwrap();
-				self.transfers_out.borrow_mut().push((id, file));
-			}
-			"L" => {
-				let remote_spec = parts.remove(2);
-				let local_spec = parts.remove(1);
-				let bind = TcpListener::bind(&local_spec.parse().unwrap()).unwrap();
-				let proxy = BindNotificationProxy {
-					oxy:   self.clone(),
-					token: Rc::new(RefCell::new(0)),
-				};
-				let proxy = Rc::new(proxy);
-				let token = transportation::insert_listener(proxy.clone());
-				let token_sized = <u64 as num::NumCast>::from(token).unwrap();
-				*proxy.token.borrow_mut() = token_sized;
-				transportation::borrow_poll(|poll| {
-					poll.register(&bind, Token(token), Ready::readable(), PollOpt::level()).unwrap();
-				});
-				let bind = PortBind {
-					listener: bind,
-					local_spec,
-					remote_spec,
-				};
-				self.port_binds.borrow_mut().insert(token_sized, bind);
-			}
-			"R" => {
-				let bind_id = self.send(RemoteBind { addr: parts.remove(1) });
-				self.remote_bind_destinations.borrow_mut().insert(bind_id, parts.remove(1));
-			}
-			#[cfg(unix)]
-			"tun" => {
-				let reference_number = self.send(TunnelRequest {
-					tap:  false,
-					name: parts.remove(2),
-				});
-				let tuntap = TunTap::create(TunTapType::Tun, &parts[1], reference_number, self.clone());
-				self.tuntaps.borrow_mut().insert(reference_number, tuntap);
-			}
-			#[cfg(unix)]
-			"tap" => {
-				let reference_number = self.send(TunnelRequest {
-					tap:  true,
-					name: parts.remove(2),
-				});
-				let tuntap = TunTap::create(TunTapType::Tap, &parts[1], reference_number, self.clone());
-				self.tuntaps.borrow_mut().insert(reference_number, tuntap);
-			}
-			"socks" => {
-				let local_spec = parts.remove(1);
-				let bind = TcpListener::bind(&local_spec.parse().unwrap()).unwrap();
-				let proxy = SocksBindNotificationProxy {
-					oxy:   self.clone(),
-					token: Rc::new(RefCell::new(0)),
-				};
-				let proxy = Rc::new(proxy);
-				let token = transportation::insert_listener(proxy.clone());
-				let token_sized = <u64 as num::NumCast>::from(token).unwrap();
-				*proxy.token.borrow_mut() = token_sized;
-				transportation::borrow_poll(|poll| {
-					poll.register(&bind, Token(token), Ready::readable(), PollOpt::level()).unwrap();
-				});
-				let socks = SocksBind { listener: bind };
-				self.socks_binds.borrow_mut().insert(token_sized, socks);
 			}
 			_ => (),
 		}
