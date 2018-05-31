@@ -125,7 +125,7 @@ pub fn batched_metacommands() -> Vec<String> {
 }
 
 pub fn process() {
-	&*MATCHES;
+	::lazy_static::initialize(&MATCHES);
 	if env::var("RUST_LOG").is_err() {
 		env::set_var("RUST_LOG", "oxy=info");
 	}
@@ -177,7 +177,7 @@ pub fn key() -> String {
 
 pub fn destination() -> String {
 	let mut dest = MATCHES.subcommand_matches(mode()).unwrap().value_of("destination").unwrap().to_string();
-	if !dest.contains(":") {
+	if !dest.contains(':') {
 		dest = format!("{}:2600", dest);
 	}
 	dest
@@ -190,7 +190,7 @@ pub fn bind_address() -> String {
 		.value_of("bind-address")
 		.unwrap_or("0.0.0.0:2600")
 		.to_string();
-	if !addr.contains(":") {
+	if !addr.contains(':') {
 		addr = format!("{}:2600", addr);
 	}
 	addr
