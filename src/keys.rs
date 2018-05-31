@@ -37,8 +37,7 @@ pub fn load_key<P: AsRef<Path>>(path: P) -> Ed25519KeyPair {
 	let mut buf = Vec::new();
 	file.read_to_end(&mut buf).unwrap();
 	let input = untrusted::Input::from(&buf);
-	let key = Ed25519KeyPair::from_pkcs8(input).unwrap();
-	key
+	Ed25519KeyPair::from_pkcs8(input).unwrap()
 }
 
 pub fn load_private_key() -> Ed25519KeyPair {

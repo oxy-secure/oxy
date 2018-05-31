@@ -18,7 +18,7 @@ pub(crate) struct TunTap {
 	notify_hook:      Rc<RefCell<Option<Rc<Notifiable>>>>,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum TunTapType {
 	Tun,
 	Tap,

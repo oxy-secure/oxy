@@ -52,7 +52,7 @@ impl Ui {
 		}
 	}
 
-	pub fn pty_data(&self, data: Vec<u8>) {
+	pub fn pty_data(&self, data: &[u8]) {
 		#[cfg(windows)]
 		unimplemented!();
 		#[cfg(unix)]
@@ -100,7 +100,7 @@ impl Ui {
 	}
 
 	#[cfg(unix)]
-	fn write_tty(&self, output: String) {
+	fn write_tty(&self, output: &str) {
 		if self.is_raw() {
 			self.platform.borrow_mut().raw.as_mut().unwrap().write_all(output.as_bytes()).unwrap();
 			self.platform.borrow_mut().raw.as_mut().unwrap().flush().unwrap();
@@ -128,12 +128,12 @@ impl Notifiable for Ui {
 			let f12 = [27, 91, 50, 52, 126];
 
 			let data = self.underlying.take();
-			if &data[..] == &f10[..] {
-				self.write_tty(format!("\n\roxy> "));
+			if data[..] == f10[..] {
+				self.write_tty("\n\roxy> ");
 				self.cooked();
 				return;
 			}
-			if &data[..] == &f12[..] {
+			if data[..] == f12[..] {
 				self.cooked();
 				::std::process::exit(0);
 			}

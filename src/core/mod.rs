@@ -173,7 +173,7 @@ impl Oxy {
 			#[cfg(unix)]
 			PtyOutput { data } => {
 				assert!(perspective() == Alice);
-				self.ui.borrow_mut().as_mut().unwrap().pty_data(data);
+				self.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
 			}
 			BasicCommandOutput { stdout, stderr } => {
 				assert!(perspective() == Alice);
@@ -208,7 +208,7 @@ impl Oxy {
 				self.transfers_in.borrow_mut().insert(message_number, file);
 			}
 			FileData { reference, data } => {
-				if data.len() == 0 {
+				if data.is_empty() {
 					debug!("File transfer completed");
 					self.transfers_in.borrow_mut().remove(&reference);
 					return;
@@ -376,7 +376,7 @@ impl Oxy {
 	pub fn notify_tuntap(&self, reference_number: u64) {
 		let borrow = self.tuntaps.borrow_mut();
 		let tuntap = borrow.get(&reference_number).unwrap();
-		for packet in tuntap.get_packets().into_iter() {
+		for packet in tuntap.get_packets() {
 			self.send(TunnelData {
 				reference: reference_number,
 				data:      packet,
@@ -410,7 +410,7 @@ impl Oxy {
 		while let Some(msg) = self.ui.borrow_mut().as_mut().unwrap().recv() {
 			match msg {
 				MetaCommand { parts } => {
-					if parts.len() == 0 {
+					if parts.is_empty() {
 						continue;
 					}
 					self.handle_metacommand(parts);
@@ -426,7 +426,7 @@ impl Oxy {
 	fn notify_pty(&self) {
 		let data = self.pty.borrow_mut().as_mut().unwrap().underlying.take();
 		debug!("PTY Data: {:?}", data);
-		if data.len() > 0 {
+		if !data.is_empty() {
 			self.send(PtyOutput { data });
 		}
 	}
@@ -506,14 +506,14 @@ impl Oxy {
 	}
 
 	fn run_batched_metacommands(&self) {
-		for command in arg::batched_metacommands().into_iter() {
+		for command in arg::batched_metacommands() {
 			let parts = shlex::split(&command).unwrap();
 			self.handle_metacommand(parts);
 		}
 		#[cfg(unix)]
 		{
 			if ::termion::is_tty(&::std::io::stdout()) {
-				self.handle_metacommand(vec![format!("pty")]);
+				self.handle_metacommand(vec!["pty".to_string()]);
 			}
 		}
 	}
@@ -533,7 +533,7 @@ impl Oxy {
 	}
 	fn notify_socks_connection(&self, proxy: &SocksConnectionNotificationProxy) {
 		let data = proxy.bt.take();
-		if data.len() == 0 {
+		if data.is_empty() {
 			return;
 		}
 		debug!("Socks data: {:?}", data);
@@ -589,10 +589,14 @@ impl Notifiable for Oxy {
 	fn notify(&self) {
 		if self.underlying_transport.borrow().as_ref().unwrap().is_closed() {
 			#[cfg(unix)]
-			self.ui.borrow_mut().as_ref().map(|x| x.cooked());
+			{
+				if let Some(x) = self.ui.borrow_mut().as_ref() {
+					x.cooked()
+				};
+			}
 			::std::process::exit(0);
 		}
-		for message in self.underlying_transport.borrow().as_ref().unwrap().recv_all().into_iter() {
+		for message in self.underlying_transport.borrow().as_ref().unwrap().recv_all() {
 			let message_number = self.tick_incoming();
 			self.handle_message(message, message_number);
 		}
