@@ -17,6 +17,7 @@ use transportation::{
 	}, BufferedTransport, EncryptedTransport,
 	EncryptionPerspective::{Alice, Bob}, MessageTransport, Notifiable, Notifies, ProtocolTransport,
 };
+#[cfg(unix)]
 use tuntap::{TunTap, TunTapType};
 use ui::Ui;
 
@@ -35,10 +36,11 @@ pub struct Oxy {
 	remote_bind_destinations: Rc<RefCell<HashMap<u64, String>>>,
 	naked_state: Rc<RefCell<NakedState>>,
 	kex_data: Rc<RefCell<KexData>>,
-	tuntaps: Rc<RefCell<HashMap<u64, TunTap>>>,
 	socks_binds: Rc<RefCell<HashMap<u64, SocksBind>>>,
 	#[cfg(unix)]
 	pty: Rc<RefCell<Option<Pty>>>,
+	#[cfg(unix)]
+	tuntaps: Rc<RefCell<HashMap<u64, TunTap>>>,
 }
 
 impl Oxy {
@@ -67,10 +69,11 @@ impl Oxy {
 			remote_bind_destinations: Rc::new(RefCell::new(HashMap::new())),
 			naked_state: Rc::new(RefCell::new(NakedState::Reject)),
 			kex_data: Rc::new(RefCell::new(KexData::default())),
-			tuntaps: Rc::new(RefCell::new(HashMap::new())),
 			socks_binds: Rc::new(RefCell::new(HashMap::new())),
 			#[cfg(unix)]
 			pty: Rc::new(RefCell::new(None)),
+			#[cfg(unix)]
+			tuntaps: Rc::new(RefCell::new(HashMap::new())),
 		};
 		let proxy = NakedNotificationProxy { oxy: x.clone() };
 		x.naked_transport.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
@@ -268,12 +271,14 @@ impl Oxy {
 			LocalStreamData { reference, data } => {
 				self.local_streams.borrow_mut().get_mut(&reference).unwrap().stream.put(&data[..]);
 			}
+			#[cfg(unix)]
 			TunnelRequest { tap, name } => {
 				self.bob_only();
 				let mode = if tap { TunTapType::Tap } else { TunTapType::Tun };
 				let tuntap = TunTap::create(mode, &name, message_number, self.clone());
 				self.tuntaps.borrow_mut().insert(message_number, tuntap);
 			}
+			#[cfg(unix)]
 			TunnelData { reference, data } => {
 				let borrow = self.tuntaps.borrow_mut();
 				borrow.get(&reference).unwrap().send(&data);
@@ -328,6 +333,7 @@ impl Oxy {
 				let bind_id = self.send(RemoteBind { addr: parts.remove(1) });
 				self.remote_bind_destinations.borrow_mut().insert(bind_id, parts.remove(1));
 			}
+			#[cfg(unix)]
 			"tun" => {
 				let reference_number = self.send(TunnelRequest {
 					tap:  false,
@@ -336,6 +342,7 @@ impl Oxy {
 				let tuntap = TunTap::create(TunTapType::Tun, &parts[1], reference_number, self.clone());
 				self.tuntaps.borrow_mut().insert(reference_number, tuntap);
 			}
+			#[cfg(unix)]
 			"tap" => {
 				let reference_number = self.send(TunnelRequest {
 					tap:  true,
@@ -365,6 +372,7 @@ impl Oxy {
 		}
 	}
 
+	#[cfg(unix)]
 	pub fn notify_tuntap(&self, reference_number: u64) {
 		let borrow = self.tuntaps.borrow_mut();
 		let tuntap = borrow.get(&reference_number).unwrap();
@@ -502,8 +510,11 @@ impl Oxy {
 			let parts = shlex::split(&command).unwrap();
 			self.handle_metacommand(parts);
 		}
-		if ::termion::is_tty(&::std::io::stdout()) {
-			self.handle_metacommand(vec![format!("pty")]);
+		#[cfg(unix)]
+		{
+			if ::termion::is_tty(&::std::io::stdout()) {
+				self.handle_metacommand(vec![format!("pty")]);
+			}
 		}
 	}
 
@@ -577,6 +588,7 @@ impl Oxy {
 impl Notifiable for Oxy {
 	fn notify(&self) {
 		if self.underlying_transport.borrow().as_ref().unwrap().is_closed() {
+			#[cfg(unix)]
 			self.ui.borrow_mut().as_ref().map(|x| x.cooked());
 			::std::process::exit(0);
 		}
