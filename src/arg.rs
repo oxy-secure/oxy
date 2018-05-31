@@ -73,7 +73,7 @@ fn create_matches() -> ArgMatches<'static> {
 			SubCommand::with_name("client")
 				.about("Connect to an Oxy server.")
 				.args(&client_args)
-				.arg(Arg::with_name("destination").index(1)),
+				.arg(Arg::with_name("destination").index(1).required(true)),
 		)
 		.subcommand(
 			SubCommand::with_name("reexec")
@@ -95,7 +95,7 @@ fn create_matches() -> ArgMatches<'static> {
 			SubCommand::with_name("reverse-server")
 				.about("Connect out to a listening client. Then, be a server.")
 				.args(&server_args)
-				.arg(Arg::with_name("destination").index(1)),
+				.arg(Arg::with_name("destination").index(1).required(true)),
 		)
 		.subcommand(
 			SubCommand::with_name("reverse-client")
