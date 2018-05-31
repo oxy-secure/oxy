@@ -7,19 +7,11 @@ oxy keygen > client_key   # Creates the key
 oxy keygen client_key     # Prints the public key
 
 On the server:
-oxy server --peer=client_public_key
+oxy server --peer=client_public_key -k "a symmetric key of your choice, or one will be generated and printed in the output"
 
 On the client:
-oxy client my.server.com -k "key from server log output" --peer=server_public_key
+oxy client my.server.com -k "the same symmetric key" --peer=server_public_key
 
-Press F10 to get to an interactive command prompt from the client. You can start portforwards and transfer files from this prompt.
+Press F10 to get to an interactive command prompt from the client. You can start portforwards and transfer files from this prompt. Try "help" at this prompt.
 
 Press F12 to exit out of the client.
-
-Here are some things you can do at the metacommand prompt:
-
-oxy> download /tmp/foo /tmp/bar          # Download remote file /tmp/foo to local file /tmp/bar
-oxy> L 127.0.0.1:5900 127.0.0.1:5901     # Open a local portforward that connects to 127.0.0.1:5901 on the remote side.
-oxy> tun tun0 tun1                       # Connect tunnel devices local(tun0) and remote(tun1) together.
-                                         # Use "sudo ip tuntap add mode tun user yourname" to create the devices with
-                                         # appropriate permissions from before hand, obviating the need to run Oxy as root on either side.
