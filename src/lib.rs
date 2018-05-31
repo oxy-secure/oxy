@@ -30,6 +30,7 @@ mod message;
 mod pty;
 mod reexec;
 mod server;
+#[cfg(unix)]
 mod tuntap;
 mod ui;
 mod wordlist;
