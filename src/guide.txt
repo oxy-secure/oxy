@@ -1,16 +1,8 @@
 On the server:
-oxy keygen > server_key   # This will create the host key
-oxy keygen server_key     # This will print the public key of the host key
+oxy server
 
 On the client:
-oxy keygen > client_key   # Creates the key
-oxy keygen client_key     # Prints the public key
-
-On the server:
-oxy server --peer=client_public_key -k "a symmetric key of your choice, or one will be generated and printed in the output"
-
-On the client:
-oxy client my.server.com -k "the same symmetric key" --peer=server_public_key
+oxy client my.server.com --identity="the identity provided in the server output"
 
 Press F10 to get to an interactive command prompt from the client. You can start portforwards and transfer files from this prompt. Try "help" at this prompt.
 
