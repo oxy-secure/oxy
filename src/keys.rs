@@ -1,76 +1,46 @@
-use arg;
-use base64;
-use byteorder::{self, ByteOrder};
-use std::{
-	fs::File, io::{stdout, Read, Write}, path::Path,
-};
+use arg::{self, perspective};
+use data_encoding;
 use transportation::{
-	self, ring::{self, rand::SecureRandom, signature::Ed25519KeyPair}, untrusted, EncryptionPerspective,
+	self, ring::{self, rand::SecureRandom, signature::Ed25519KeyPair}, untrusted, EncryptionPerspective::Alice,
 };
-use wordlist::WORDS;
 
-pub fn keygen_command() {
-	if let Some(keyfile) = arg::keyfile() {
-		let key = load_key(keyfile);
-		let pubkey = key.public_key_bytes();
-		let pubkey2 = base64::encode(pubkey);
-		println!("{}", pubkey2);
-		return;
-	}
-	let (s, _) = make_key();
-	let stdout = stdout();
-	stdout.lock().write_all(&s).unwrap();
+lazy_static! {
+	static ref IDENTITY_BYTES: Vec<u8> = identity_bytes();
 }
 
-pub fn load_key<P: AsRef<Path>>(path: P) -> Ed25519KeyPair {
-	let path: ::std::path::PathBuf = path.as_ref().to_path_buf();
-	let file = File::open(path.clone());
-	if file.is_err() {
-		error!(
-			"Failed to load private key {}. Maybe do 'oxy keygen > {}'?",
-			path.display(),
-			path.display()
-		);
+fn identity_bytes() -> Vec<u8> {
+	if let Some(identity) = arg::matches().value_of("identity") {
+		return data_encoding::BASE32_NOPAD.decode(identity.as_bytes()).unwrap();
+	}
+	if perspective() == Alice {
+		error!("No identity provided. If the server doesn't know who you are it won't talk to you, and how will it know who you are if you don't know who you are?");
 		::std::process::exit(1);
 	}
-	let mut file = file.unwrap();
-	let mut buf = Vec::new();
-	file.read_to_end(&mut buf).unwrap();
-	let input = untrusted::Input::from(&buf);
-	Ed25519KeyPair::from_pkcs8(input).unwrap()
+	let mut bytes = [0u8; 24].to_vec();
+	transportation::RNG.fill(&mut bytes).unwrap();
+	info!(
+		"Using quickstart mode. Run the client with --identity={}",
+		data_encoding::BASE32_NOPAD.encode(&bytes)
+	);
+	bytes
 }
 
-pub fn load_private_key() -> Ed25519KeyPair {
-	if let Some(keypath) = arg::keyfile() {
-		return load_key(&keypath);
-	}
-	match arg::perspective() {
-		EncryptionPerspective::Alice => load_key("client_key"),
-		EncryptionPerspective::Bob => load_key("server_key"),
-	}
+pub fn static_key() -> &'static [u8] {
+	&IDENTITY_BYTES[12..]
 }
 
-pub fn make_key() -> (Vec<u8>, Ed25519KeyPair) {
-	let rng = ring::rand::SystemRandom::new();
-	let private_key = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
-	let serialized = private_key.to_vec();
-	let input = untrusted::Input::from(&private_key);
-	let key = Ed25519KeyPair::from_pkcs8(input).unwrap();
-	(serialized, key)
+pub fn validate_peer_public_key(key: &[u8]) -> bool {
+	let pubkey = asymmetric_key();
+	key == pubkey.public_key_bytes()
 }
 
-fn random_psk_word() -> &'static str {
-	loop {
-		let mut buf = [0u8; 2];
-		transportation::RNG.fill(&mut buf).unwrap();
-		buf[0] &= 0b00011111;
-		let idx = byteorder::BE::read_u16(&buf) as usize;
-		if idx < 7776 {
-			return WORDS[idx];
-		}
-	}
+pub fn asymmetric_key() -> Ed25519KeyPair {
+	let mut seed = [0u8; 32];
+	ring::pbkdf2::derive(&ring::digest::SHA512, 10240, b"oxy", &IDENTITY_BYTES[..12], &mut seed);
+	let bytes = untrusted::Input::from(&seed);
+	ring::signature::Ed25519KeyPair::from_seed_unchecked(bytes).unwrap()
 }
 
-pub fn make_psk() -> String {
-	(0..6).map(|_| random_psk_word()).collect::<Vec<&'static str>>().join(" ").to_string()
+pub fn init() {
+	::lazy_static::initialize(&IDENTITY_BYTES);
 }

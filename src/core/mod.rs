@@ -4,6 +4,7 @@ mod metacommands;
 use self::kex::{KexData, NakedState};
 use arg::{self, perspective};
 use byteorder::{self, ByteOrder};
+use keys;
 use message::OxyMessage::{self, *};
 #[cfg(unix)]
 use pty::Pty;
@@ -409,7 +410,7 @@ impl Oxy {
 			_ => panic!(),
 		};
 		let mut key = self.kex_data.borrow_mut().keymaterial.as_ref().unwrap().to_vec();
-		key.extend(arg::key().as_bytes());
+		key.extend(keys::static_key());
 		let et = EncryptedTransport::create(bt, arg::perspective(), &key);
 		let pt = ProtocolTransport::create(et);
 		pt.set_notify(Rc::new(self.clone()));

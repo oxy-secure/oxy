@@ -8,7 +8,7 @@ lazy_static! {
 	pub static ref MATCHES: ArgMatches<'static> = create_matches();
 }
 
-const REAL_SUBCOMMANDS: [&str; 9] = [
+const REAL_SUBCOMMANDS: [&str; 8] = [
 	"client",
 	"reexec",
 	"server",
@@ -16,7 +16,6 @@ const REAL_SUBCOMMANDS: [&str; 9] = [
 	"serve-one",
 	"reverse-server",
 	"reverse-client",
-	"keygen",
 	"guide",
 ];
 
@@ -42,29 +41,19 @@ fn clean_args() -> Vec<String> {
 }
 
 fn create_matches() -> ArgMatches<'static> {
-	let peer = Arg::with_name("peer")
-		.short("p")
-		.long("peer")
-		.takes_value(true)
-		.help("The base64 ed25519 public key of the peer.")
-		.required(true);
-	let key = Arg::with_name("static key")
-		.short("k")
-		.long("static-key")
-		.takes_value(true)
-		.help("A pre-shared static key. Must match the static key used by the host. Provides quantum resistance!");
 	let metacommand = Arg::with_name("metacommand")
 		.short("m")
 		.long("metacommand")
 		.takes_value(true)
 		.multiple(true)
 		.help("A command to run after the connection is established. The same commands from the F10 prompt.");
-	let keyfile = Arg::with_name("keyfile")
-        .long("keyfile")
-        .takes_value(true)
-        .help("The private keyfile used for connection authentication. Defaults to ./server_key for servers and ./client_key for clients. Generated with oxy keygen.");
-	let client_args = vec![key.clone().required(true), peer.clone(), metacommand.clone(), keyfile.clone()];
-	let server_args = vec![key.clone(), peer.clone(), keyfile.clone()];
+	let identity = Arg::with_name("identity")
+		.short("i")
+		.long("identity")
+		.takes_value(true)
+		.env("OXY_IDENTITY");
+	let client_args = vec![metacommand.clone(), identity.clone().required(true)];
+	let server_args = vec![identity];
 	App::new("oxy")
 		.version(crate_version!())
 		.author(crate_authors!())
@@ -103,17 +92,8 @@ fn create_matches() -> ArgMatches<'static> {
 				.args(&client_args)
 				.arg(Arg::with_name("bind-address").index(1).default_value("0.0.0.0:2601")),
 		)
-		.subcommand(
-			SubCommand::with_name("keygen")
-				.about("Generate a keypair")
-				.arg(Arg::with_name("keyfile").index(1)),
-		)
 		.subcommand(SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."))
 		.get_matches_from(&*CLEAN_ARGS)
-}
-
-pub fn keyfile() -> Option<String> {
-	MATCHES.subcommand_matches(mode()).unwrap().value_of("keyfile").map(|x| x.to_string())
 }
 
 pub fn batched_metacommands() -> Vec<String> {
@@ -130,49 +110,14 @@ pub fn process() {
 		env::set_var("RUST_LOG", "oxy=info");
 	}
 	env_logger::try_init().ok();
-	if full_mode() {
-		key();
-		let private_key = ::keys::load_private_key();
-		info!("Your public key fingerprint is: {}", ::base64::encode(private_key.public_key_bytes()));
-	}
-}
-
-pub fn full_mode() -> bool {
-	!["keygen", "guide"].contains(&mode().as_str())
 }
 
 pub fn mode() -> String {
 	MATCHES.subcommand_name().unwrap().to_string()
 }
 
-pub fn peer() -> String {
-	MATCHES
-		.subcommand_matches(mode())
-		.unwrap()
-		.value_of("peer")
-		.expect("You must provide the peer public key! (-p)")
-		.to_string()
-}
-
-lazy_static! {
-	static ref GENERATED_KEY: String = init_psk();
-}
-
-fn init_psk() -> String {
-	let key = ::keys::make_psk();
-	info!("No PSK provided. Using generated PSK: {}", key);
-	key
-}
-
-pub fn key() -> String {
-	let key = MATCHES.subcommand_matches(mode()).unwrap().value_of("static key");
-	if key.is_some() {
-		return key.unwrap().to_string();
-	}
-	if perspective() == EncryptionPerspective::Alice {
-		panic!("You must provide a pre-shared static key! (-k)");
-	}
-	GENERATED_KEY.clone()
+pub fn matches() -> &'static ArgMatches<'static> {
+	MATCHES.subcommand_matches(mode()).unwrap()
 }
 
 pub fn destination() -> String {

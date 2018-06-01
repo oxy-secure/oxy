@@ -8,7 +8,8 @@ pub fn run() {
 		let listener = TcpListener::bind(arg::bind_address()).unwrap();
 		info!("Listening on {:?}", arg::bind_address());
 		loop {
-			if let Ok((stream, _)) = listener.accept() {
+			if let Ok((stream, remote_addr)) = listener.accept() {
+				info!("Incoming connection from {:?}", remote_addr);
 				fork_and_handle(stream);
 			} else {
 				warn!("Error receiving connection?");

@@ -6,8 +6,8 @@ extern crate clap;
 extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
-extern crate base64;
 extern crate byteorder;
+extern crate data_encoding;
 extern crate env_logger;
 #[cfg(unix)]
 extern crate libc;
@@ -33,12 +33,12 @@ mod server;
 #[cfg(unix)]
 mod tuntap;
 mod ui;
-mod wordlist;
 
 pub fn run() {
 	trace!("Oxy starting");
 	arg::process();
 	trace!("Args processed");
+	keys::init();
 	match arg::mode().as_str() {
 		"client" => client::run(),
 		"reexec" => reexec::run(),
@@ -46,7 +46,6 @@ pub fn run() {
 		"serve-one" => server::serve_one(),
 		"reverse-server" => server::reverse_server(),
 		"reverse-client" => client::reverse_client(),
-		"keygen" => keys::keygen_command(),
 		"guide" => guide::print_guide(),
 		_ => unreachable!(),
 	}
