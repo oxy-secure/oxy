@@ -1,7 +1,6 @@
-use arg;
-use base64;
 use byteorder::{self, ByteOrder};
 use core::Oxy;
+use data_encoding::BASE32_NOPAD;
 use keys;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transportation::{
@@ -37,7 +36,7 @@ impl Oxy {
 	}
 
 	pub(super) fn advertise_client_key(&self) {
-		let key = keys::load_private_key();
+		let key = keys::asymmetric_key();
 		let pubkey = key.public_key_bytes();
 		self.send_naked(pubkey);
 		let evidence = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -64,10 +63,10 @@ impl Oxy {
 			NakedState::WaitingForClientKey => {
 				self.bob_only();
 				if let Some(msg) = self.recv_naked() {
-					if base64::encode(&msg) != arg::peer() {
+					if !keys::validate_peer_public_key(&msg) {
 						panic!("Incorrect client key");
 					}
-					debug!("Accepted client key {:?}", base64::encode(&msg));
+					debug!("Accepted client key {:?}", BASE32_NOPAD.encode(&msg));
 					self.kex_data.borrow_mut().connection_client_key = Some(msg.to_vec());
 					*self.naked_state.borrow_mut() = NakedState::WaitingForClientEphemeral;
 					self.notify_naked();
@@ -95,7 +94,7 @@ impl Oxy {
 					).unwrap();
 					::std::mem::drop(kex_data);
 					let ephemeral = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
-					let server_key = keys::load_private_key();
+					let server_key = keys::asymmetric_key();
 					self.send_naked(server_key.public_key_bytes());
 					let mut buf = Vec::new();
 					buf.resize(ephemeral.public_key_len() + 8, 0);
@@ -119,8 +118,10 @@ impl Oxy {
 			NakedState::WaitingForServerKey => {
 				self.alice_only();
 				if let Some(msg) = self.recv_naked() {
-					debug!("Host key: {}", base64::encode(&msg));
-					assert!(base64::encode(&msg) == arg::peer());
+					debug!("Host key: {}", BASE32_NOPAD.encode(&msg));
+					if !keys::validate_peer_public_key(&msg) {
+						panic!("Invalid host key!");
+					}
 					self.kex_data.borrow_mut().server_key = Some(msg);
 					*self.naked_state.borrow_mut() = NakedState::WaitingForServerEphemeral;
 					self.notify_naked();
