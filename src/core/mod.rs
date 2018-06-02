@@ -40,6 +40,7 @@ pub struct Oxy {
     socks_binds: Rc<RefCell<HashMap<u64, SocksBind>>>,
     copy_peer: Rc<RefCell<Option<BufferedTransport>>>,
     is_copy_source: Rc<RefCell<bool>>,
+    fetch_file_ticker: Rc<RefCell<u64>>,
     #[cfg(unix)]
     pty: Rc<RefCell<Option<Pty>>>,
     #[cfg(unix)]
@@ -75,6 +76,7 @@ impl Oxy {
             socks_binds: Rc::new(RefCell::new(HashMap::new())),
             copy_peer: Rc::new(RefCell::new(None)),
             is_copy_source: Rc::new(RefCell::new(false)),
+            fetch_file_ticker: Rc::new(RefCell::new(0)),
             #[cfg(unix)]
             pty: Rc::new(RefCell::new(None)),
             #[cfg(unix)]
@@ -105,7 +107,6 @@ impl Oxy {
     }
 
     pub fn launch(&self) -> ! {
-        self.create_ui();
         if perspective() == Alice {
             self.advertise_client_key();
         }
@@ -225,9 +226,34 @@ impl Oxy {
                 if data.is_empty() {
                     debug!("File transfer completed");
                     self.transfers_in.borrow_mut().remove(&reference);
+                    if self.copy_peer.borrow_mut().is_some() {
+                        *self.fetch_file_ticker.borrow_mut() += 1;
+                        if *self.fetch_file_ticker.borrow_mut() >= arg::matches().occurrences_of("source") {
+                            ::std::process::exit(0);
+                        } else {
+                            let filename = arg::matches()
+                                .values_of("source")
+                                .unwrap()
+                                .nth(*self.fetch_file_ticker.borrow_mut() as usize)
+                                .unwrap();
+                            let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
+                            let cmd = ["download", &filename, "unused"].to_vec();
+                            let cmd = cmd.iter().map(|x| x.to_string()).collect();
+                            self.handle_metacommand(cmd);
+                        }
+                    }
                     return;
                 }
-                self.transfers_in.borrow_mut().get_mut(&reference).unwrap().write_all(&data[..]).unwrap();
+                if self.copy_peer.borrow_mut().is_none() {
+                    self.transfers_in.borrow_mut().get_mut(&reference).unwrap().write_all(&data[..]).unwrap();
+                } else {
+                    let ticker = *self.fetch_file_ticker.borrow_mut();
+                    let mut message: Vec<u8> = Vec::new();
+                    message.resize(8, 0);
+                    byteorder::BE::write_u64(&mut message[..8], ticker);
+                    message.extend(&data);
+                    self.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
+                }
             }
             BindConnectionAccepted { reference } => {
                 assert!(perspective() == Alice);
@@ -433,11 +459,23 @@ impl Oxy {
     }
 
     fn do_post_auth(&self) {
+        if self.copy_peer.borrow_mut().is_some() {
+            let filename = arg::matches().value_of("source").unwrap();
+            let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
+            let cmd = ["download", &filename, "unused"].to_vec();
+            let cmd = cmd.iter().map(|x| x.to_string()).collect();
+            self.handle_metacommand(cmd);
+            return;
+        }
         if perspective() == Alice {
             self.run_batched_metacommands();
-        }
-        if self.copy_peer.borrow_mut().is_some() {
-            unimplemented!();
+            #[cfg(unix)]
+            {
+                if ::termion::is_tty(&::std::io::stdout()) {
+                    self.handle_metacommand(vec!["pty".to_string()]);
+                }
+            }
+            self.create_ui();
         }
     }
 
@@ -445,12 +483,6 @@ impl Oxy {
         for command in arg::batched_metacommands() {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
-        }
-        #[cfg(unix)]
-        {
-            if ::termion::is_tty(&::std::io::stdout()) {
-                self.handle_metacommand(vec!["pty".to_string()]);
-            }
         }
     }
 

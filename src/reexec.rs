@@ -5,10 +5,6 @@ use transportation::BufferedTransport;
 pub fn run() {
     #[cfg(unix)]
     {
-        let fds = std::fs::read_dir("/proc/self/fd").unwrap();
-        for dir in fds {
-            debug!("Has fd: {:?}", dir);
-        }
         use std::os::unix::io::RawFd;
         let fd = ::arg::matches().value_of("fd").unwrap().parse().unwrap();
         debug!("Reexec using fd {}", fd);
