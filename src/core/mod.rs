@@ -38,6 +38,8 @@ pub struct Oxy {
     naked_state: Rc<RefCell<NakedState>>,
     kex_data: Rc<RefCell<KexData>>,
     socks_binds: Rc<RefCell<HashMap<u64, SocksBind>>>,
+    copy_peer: Rc<RefCell<Option<BufferedTransport>>>,
+    is_copy_source: Rc<RefCell<bool>>,
     #[cfg(unix)]
     pty: Rc<RefCell<Option<Pty>>>,
     #[cfg(unix)]
@@ -53,7 +55,7 @@ impl Oxy {
         assert!(perspective() == Bob);
     }
 
-    fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
+    pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
         let bt: BufferedTransport = transport.into();
         let mt = <MessageTransport as From<BufferedTransport>>::from(bt);
         let x = Oxy {
@@ -71,6 +73,8 @@ impl Oxy {
             naked_state: Rc::new(RefCell::new(NakedState::Reject)),
             kex_data: Rc::new(RefCell::new(KexData::default())),
             socks_binds: Rc::new(RefCell::new(HashMap::new())),
+            copy_peer: Rc::new(RefCell::new(None)),
+            is_copy_source: Rc::new(RefCell::new(false)),
             #[cfg(unix)]
             pty: Rc::new(RefCell::new(None)),
             #[cfg(unix)]
@@ -78,7 +82,6 @@ impl Oxy {
         };
         let proxy = NakedNotificationProxy { oxy: x.clone() };
         x.naked_transport.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
-        x.create_ui();
         x
     }
 
@@ -96,15 +99,25 @@ impl Oxy {
         self.underlying_transport.borrow().is_some()
     }
 
-    pub fn run<T: Into<BufferedTransport>>(transport: T) -> ! {
-        let oxy = Oxy::create(transport);
+    pub fn fetch_files(&self, peer: BufferedTransport) {
+        *self.copy_peer.borrow_mut() = Some(peer);
+        *self.is_copy_source.borrow_mut() = true;
+    }
+
+    pub fn launch(&self) -> ! {
+        self.create_ui();
         if perspective() == Alice {
-            oxy.advertise_client_key();
+            self.advertise_client_key();
         }
         if perspective() == Bob {
-            *oxy.naked_state.borrow_mut() = NakedState::WaitingForClientKey;
+            *self.naked_state.borrow_mut() = NakedState::WaitingForClientKey;
         }
         transportation::run();
+    }
+
+    pub fn run<T: Into<BufferedTransport>>(transport: T) -> ! {
+        let oxy = Oxy::create(transport);
+        oxy.launch();
     }
 
     fn send(&self, message: OxyMessage) -> u64 {
@@ -416,8 +429,15 @@ impl Oxy {
         pt.set_notify(Rc::new(self.clone()));
         *self.underlying_transport.borrow_mut() = Some(pt);
         self.notify();
+        self.do_post_auth();
+    }
+
+    fn do_post_auth(&self) {
         if perspective() == Alice {
             self.run_batched_metacommands();
+        }
+        if self.copy_peer.borrow_mut().is_some() {
+            unimplemented!();
         }
     }
 

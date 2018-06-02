@@ -54,7 +54,7 @@ fn create_matches() -> ArgMatches<'static> {
         .takes_value(true)
         .env("OXY_IDENTITY");
     let client_args = vec![metacommand.clone(), identity.clone().required(true)];
-    let server_args = vec![identity];
+    let server_args = vec![identity.clone()];
     App::new("oxy")
         .version(crate_version!())
         .author(crate_authors!())
@@ -98,6 +98,7 @@ fn create_matches() -> ArgMatches<'static> {
         .subcommand(
             SubCommand::with_name("copy")
                 .about("Transfer files. Source, destination, or both may be remote paths.")
+                .arg(identity)
                 .arg(Arg::with_name("source").index(1).multiple(true).required(true))
                 .arg(Arg::with_name("dest").index(2).required(true)),
         )
