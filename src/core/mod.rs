@@ -242,6 +242,9 @@ impl Oxy {
                 let file = File::create(path).unwrap();
                 self.transfers_in.borrow_mut().insert(message_number, file);
             }
+            FileSize { reference: _, size } => {
+                ::copy::push_file_size(size);
+            }
             FileData { reference, data } => {
                 if data.is_empty() {
                     debug!("File transfer completed");
@@ -515,10 +518,17 @@ impl Oxy {
     }
 
     fn notify_transfer(&self) {
+        if self.copy_peer.borrow_mut().is_none() {
+            return;
+        }
         trace!(
             "Transfer notified. Available: {}",
             self.copy_peer.borrow_mut().as_mut().unwrap().available()
         );
+        if !self.has_write_space() {
+            trace!("Outbound buffers are full, holding off");
+            return;
+        }
         let data = self.copy_peer.borrow_mut().as_mut().unwrap().recv_all_messages();
         for data in data {
             trace!("Transfer has a message {:?}", data);
@@ -532,6 +542,7 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                ::copy::draw_progress_bar((data.len() - 8) as u64);
             } else {
                 assert!(
                     (filenumber == 0 && self.file_transfer_reference.borrow().is_none()) || filenumber == *self.fetch_file_ticker.borrow_mut() + 1
@@ -546,6 +557,8 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                ::copy::pop_file_size();
+                ::copy::draw_progress_bar((data.len() - 8) as u64);
             }
         }
     }
@@ -620,6 +633,7 @@ impl Oxy {
 
 impl Notifiable for Oxy {
     fn notify(&self) {
+        trace!("Core notified");
         if self.underlying_transport.borrow().as_ref().unwrap().is_closed() {
             #[cfg(unix)]
             {
@@ -654,6 +668,8 @@ impl Notifiable for Oxy {
             self.handle_message(message, message_number);
         }
         self.service_transfers();
+        self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR
+        trace!("Here");
     }
 }
 

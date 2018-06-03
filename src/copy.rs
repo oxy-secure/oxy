@@ -8,7 +8,10 @@ use transportation::{BufferedTransport, Notifiable, Notifies};
 
 pub fn run() {
     if !arg::homogeneous_sources() {
-        eprintln!("Sorry! Copying from multiple different sources isn't supported yet. IT REALLY SHOULD BE. Expect a lot from your tools! Don't let it stay like this forever!");
+        eprintln!(
+            "Sorry! Copying from multiple different sources isn't supported yet. \
+             IT REALLY SHOULD BE. Expect a lot from your tools! Don't let it stay like this forever!"
+        );
         ::std::process::exit(1);
     }
     let src = &arg::source_peer_str(0) != "";
@@ -122,10 +125,14 @@ impl Notifiable for RecvFilesService {
                     let part = part.canonicalize().unwrap();
                     path.push(part.file_name().unwrap());
                 }
+                pop_file_size();
                 let file = File::create(path).unwrap();
                 *self.file.borrow_mut() = Some(file);
-                self.file.borrow_mut().as_mut().unwrap().write_all(&msg[8..]).unwrap();
+                *self.id.borrow_mut() = number;
             }
+            self.file.borrow_mut().as_mut().unwrap().write_all(&msg[8..]).unwrap();
+            let sent_amount = msg.len() - 8;
+            draw_progress_bar(sent_amount as u64);
         }
     }
 }
@@ -138,6 +145,7 @@ struct SendFilesService {
 
 impl Notifiable for SendFilesService {
     fn notify(&self) {
+        trace!("SendFilesService Notified");
         if self.file.borrow().is_none() {
             let id = *self.id.borrow();
             trace!("ID: {:?}", id);
@@ -149,12 +157,14 @@ impl Notifiable for SendFilesService {
                 *self.id.borrow_mut() = ::std::u64::MAX;
                 return;
             }
-            *self.file.borrow_mut() = Some(File::open(arg::source_path(id)).unwrap());
+            let file = File::open(arg::source_path(id)).unwrap();
+            push_file_size(file.metadata().unwrap().len());
+            *self.file.borrow_mut() = Some(file);
         }
         if self.bt.has_write_space() {
-            let mut page = [0u8; 1024];
+            let mut page = [0u8; 2048];
             let result = self.file.borrow_mut().as_mut().unwrap().read(&mut page);
-            info!("{:?}", result);
+            trace!("SendFilesService file read: {:?}", result);
             if result.is_ok() {
                 let mut message: Vec<u8> = Vec::new();
                 message.resize(8, 0);
@@ -166,6 +176,57 @@ impl Notifiable for SendFilesService {
                 self.file.borrow_mut().take();
                 *self.id.borrow_mut() += 1;
             }
+        } else {
+            trace!("Copy peer full, holding off from SendFilesService");
         }
     }
+}
+
+thread_local! {
+    static PROGRESS_BAR_SPACE_MADE: RefCell<bool> = RefCell::new(false);
+    static CURRENT_FILE_TRANSFER_SIZE: RefCell<Option<u64>> = RefCell::new(None);
+    static BYTES_TRANSFERED: RefCell<u64> = RefCell::new(0);
+    static QUEUED_FILE_SIZES: RefCell<Vec<u64>> = RefCell::new(Vec::new());
+}
+
+pub fn push_file_size(size: u64) {
+    trace!("Pushing a file size");
+    QUEUED_FILE_SIZES.with(|x| x.borrow_mut().push(size));
+}
+
+pub fn pop_file_size() {
+    trace!("Popping a file size");
+    set_file_size(QUEUED_FILE_SIZES.with(|x| x.borrow_mut().remove(0)));
+}
+
+pub fn set_file_size(size: u64) {
+    CURRENT_FILE_TRANSFER_SIZE.with(|x| *x.borrow_mut() = Some(size));
+    BYTES_TRANSFERED.with(|x| *x.borrow_mut() = 0);
+    PROGRESS_BAR_SPACE_MADE.with(|x| *x.borrow_mut() = false);
+}
+
+pub fn draw_progress_bar(bytes_transfered: u64) {
+    let bytes_transfered = BYTES_TRANSFERED.with(|x| {
+        *x.borrow_mut() += bytes_transfered;
+        *x.borrow()
+    });
+    let total_bytes = CURRENT_FILE_TRANSFER_SIZE.with(|x| x.borrow().clone());
+
+    if !PROGRESS_BAR_SPACE_MADE.with(|x| *x.borrow()) {
+        print!("\n\n");
+        PROGRESS_BAR_SPACE_MADE.with(|x| *x.borrow_mut() = true);
+    }
+
+    print!("\x1B[2A");
+    let width = ::termion::terminal_size().unwrap().0 as u64;
+    let percentage: u64 = if let Some(total_bytes) = total_bytes {
+        (bytes_transfered * 100) / total_bytes
+    } else {
+        0
+    };
+    let line1 = format!("Transfered: {} bytes, {}%", bytes_transfered, percentage);
+    let barwidth: u64 = (width * percentage) / 100;
+    let x = "=".repeat(barwidth as usize);
+    println!("{}", line1);
+    println!("{}", x);
 }
