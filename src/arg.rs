@@ -132,6 +132,9 @@ pub fn matches() -> &'static ArgMatches<'static> {
 }
 
 fn path_peer(arg: &str) -> Vec<SocketAddr> {
+    if !arg.splitn(2, '/').next().unwrap().contains(':') {
+        return Vec::new();
+    }
     if arg.starts_with('[') {
         let peer = arg.splitn(2, '[').nth(1).unwrap().splitn(2, ']').next().unwrap().to_string();
         return peer.to_socket_addrs().unwrap().collect();
@@ -139,7 +142,30 @@ fn path_peer(arg: &str) -> Vec<SocketAddr> {
     (arg.splitn(2, ':').next().unwrap(), 2600).to_socket_addrs().unwrap().collect()
 }
 
+fn path_peer_str(arg: &str) -> String {
+    if !arg.splitn(2, '/').next().unwrap().contains(':') {
+        return "".to_string();
+    }
+    if arg.starts_with('[') {
+        return format!("{}]", arg.splitn(2, ']').next().unwrap());
+    }
+    arg.splitn(2, ':').next().unwrap().to_string()
+}
+
+pub fn homogeneous_sources() -> bool {
+    let first = source_peer_str(0);
+    for source in matches().values_of("source").unwrap().skip(1) {
+        if path_peer_str(source) != first {
+            return false;
+        }
+    }
+    return true;
+}
+
 fn path_path(arg: &str) -> String {
+    if !arg.splitn(2, '/').next().unwrap().contains(':') {
+        return arg.to_string();
+    }
     if arg.starts_with('[') {
         return arg.splitn(2, ']').nth(1).unwrap().splitn(2, ':').nth(1).unwrap().to_string();
     }
@@ -148,6 +174,10 @@ fn path_path(arg: &str) -> String {
 
 pub fn source_peer(n: u64) -> Vec<SocketAddr> {
     path_peer(matches().values_of("source").unwrap().nth(n as usize).unwrap())
+}
+
+pub fn source_peer_str(n: u64) -> String {
+    path_peer_str(matches().values_of("source").unwrap().nth(n as usize).unwrap())
 }
 
 pub fn source_path(n: u64) -> String {
@@ -160,6 +190,10 @@ pub fn dest_path() -> String {
 
 pub fn dest_peer() -> Vec<SocketAddr> {
     path_peer(matches().value_of("dest").unwrap())
+}
+
+pub fn dest_peer_str() -> String {
+    path_peer_str(matches().value_of("dest").unwrap())
 }
 
 pub fn destination() -> String {

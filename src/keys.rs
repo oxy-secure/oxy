@@ -12,6 +12,10 @@ fn identity_bytes_initializer() -> Vec<u8> {
     if let Some(identity) = arg::matches().value_of("identity") {
         return data_encoding::BASE32_NOPAD.decode(identity.as_bytes()).unwrap();
     }
+    if arg::mode() == "copy" {
+        warn!("No identity provided.");
+        return Vec::new();
+    }
     if perspective() == Alice {
         error!("No identity provided. If the server doesn't know who you are it won't talk to you, and how will it know who you are if you don't know who you are?");
         ::std::process::exit(1);

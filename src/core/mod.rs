@@ -41,7 +41,7 @@ pub struct Oxy {
     copy_peer: Rc<RefCell<Option<BufferedTransport>>>,
     is_copy_source: Rc<RefCell<bool>>,
     fetch_file_ticker: Rc<RefCell<u64>>,
-    file_transfer_reference: Rc<RefCell<u64>>,
+    file_transfer_reference: Rc<RefCell<Option<u64>>>,
     #[cfg(unix)]
     pty: Rc<RefCell<Option<Pty>>>,
     #[cfg(unix)]
@@ -78,7 +78,7 @@ impl Oxy {
             copy_peer: Rc::new(RefCell::new(None)),
             is_copy_source: Rc::new(RefCell::new(false)),
             fetch_file_ticker: Rc::new(RefCell::new(0)),
-            file_transfer_reference: Rc::new(RefCell::new(0)),
+            file_transfer_reference: Rc::new(RefCell::new(None)),
             #[cfg(unix)]
             pty: Rc::new(RefCell::new(None)),
             #[cfg(unix)]
@@ -113,13 +113,17 @@ impl Oxy {
         *self.is_copy_source.borrow_mut() = false;
     }
 
-    pub fn launch(&self) -> ! {
+    pub fn soft_launch(&self) {
         if perspective() == Alice {
             self.advertise_client_key();
         }
         if perspective() == Bob {
             *self.naked_state.borrow_mut() = NakedState::WaitingForClientKey;
         }
+    }
+
+    pub fn launch(&self) -> ! {
+        self.soft_launch();
         transportation::run();
     }
 
@@ -254,6 +258,11 @@ impl Oxy {
                             let cmd = ["download", &filename, "unused"].to_vec();
                             let cmd = cmd.iter().map(|x| x.to_string()).collect();
                             self.handle_metacommand(cmd);
+                        } else {
+                            let mut message = [0u8; 8];
+                            byteorder::BE::write_u64(&mut message, ::std::u64::MAX);
+                            self.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
+                            trace!("Source is done.");
                         }
                     }
                     return;
@@ -480,12 +489,6 @@ impl Oxy {
                 let cmd = ["download", &filename, "unused"].to_vec();
                 let cmd = cmd.iter().map(|x| x.to_string()).collect();
                 self.handle_metacommand(cmd);
-            } else {
-                let filepart: PathBuf = arg::source_path(0).into();
-                let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
-                let path = arg::dest_path();
-                let reference = self.send(UploadRequest { path, filepart });
-                *self.file_transfer_reference.borrow_mut() = reference;
             }
             let proxy = TransferNotificationProxy { oxy: self.clone() };
             self.copy_peer.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
@@ -512,16 +515,6 @@ impl Oxy {
     }
 
     fn notify_transfer(&self) {
-        if *self.is_copy_source.borrow_mut() {
-            if *self.fetch_file_ticker.borrow_mut() >= arg::matches().occurrences_of("source") {
-                let peer = self.copy_peer.borrow_mut();
-                let peer2 = peer.as_ref().unwrap();
-                if peer2.write_buffer.borrow_mut().is_empty() {
-                    ::std::process::exit(0);
-                }
-            }
-            return;
-        }
         trace!(
             "Transfer notified. Available: {}",
             self.copy_peer.borrow_mut().as_mut().unwrap().available()
@@ -530,20 +523,25 @@ impl Oxy {
         for data in data {
             trace!("Transfer has a message {:?}", data);
             let filenumber = byteorder::BE::read_u64(&data[..8]);
-            if filenumber == *self.fetch_file_ticker.borrow_mut() {
-                let reference = *self.file_transfer_reference.borrow_mut();
+            if filenumber == ::std::u64::MAX {
+                *self.fetch_file_ticker.borrow_mut() = ::std::u64::MAX;
+            }
+            if self.file_transfer_reference.borrow().is_some() && filenumber == *self.fetch_file_ticker.borrow_mut() {
+                let reference = self.file_transfer_reference.borrow_mut().unwrap();
                 self.send(FileData {
                     data: data[8..].to_vec(),
                     reference,
                 });
             } else {
-                assert!(filenumber == *self.fetch_file_ticker.borrow_mut() + 1);
-                *self.fetch_file_ticker.borrow_mut() += 1;
+                assert!(
+                    (filenumber == 0 && self.file_transfer_reference.borrow().is_none()) || filenumber == *self.fetch_file_ticker.borrow_mut() + 1
+                );
+                *self.fetch_file_ticker.borrow_mut() = filenumber;
                 let filepart: PathBuf = arg::source_path(filenumber).into();
                 let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
                 let path = arg::dest_path();
                 let reference = self.send(UploadRequest { path, filepart });
-                *self.file_transfer_reference.borrow_mut() = reference;
+                *self.file_transfer_reference.borrow_mut() = Some(reference);
                 self.send(FileData {
                     data: data[8..].to_vec(),
                     reference,
@@ -634,7 +632,7 @@ impl Notifiable for Oxy {
         if self.copy_peer.borrow_mut().is_some() {
             if !*self.is_copy_source.borrow_mut() {
                 let peer = self.copy_peer.borrow_mut();
-                if peer.as_ref().unwrap().is_closed() {
+                if *self.fetch_file_ticker.borrow_mut() == ::std::u64::MAX {
                     if peer.as_ref().unwrap().available() == 0 {
                         let underlying = self.underlying_transport.borrow();
                         let mt = &underlying.as_ref().unwrap().mt;
