@@ -10,7 +10,7 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::File, io::{Read, Write}, net::ToSocketAddrs, rc::Rc,
+    cell::RefCell, collections::HashMap, fs::{metadata, File}, io::{Read, Write}, net::ToSocketAddrs, path::PathBuf, rc::Rc,
 };
 use transportation::{
     self, mio::{
@@ -224,8 +224,17 @@ impl Oxy {
                 });
                 self.transfers_out.borrow_mut().push((message_number, file));
             }
-            UploadRequest { path } => {
+            UploadRequest { path, filepart } => {
                 assert!(perspective() == Bob);
+                if let Ok(meta) = metadata(&path) {
+                    if meta.is_dir() {
+                        let mut buf: PathBuf = path.into();
+                        buf.push(filepart);
+                        let file = File::create(buf).unwrap();
+                        self.transfers_in.borrow_mut().insert(message_number, file);
+                        return;
+                    }
+                }
                 let file = File::create(path).unwrap();
                 self.transfers_in.borrow_mut().insert(message_number, file);
             }
@@ -472,9 +481,10 @@ impl Oxy {
                 let cmd = cmd.iter().map(|x| x.to_string()).collect();
                 self.handle_metacommand(cmd);
             } else {
-                let path = arg::matches().values_of("source").unwrap().next().unwrap().to_string();
-                let path = path.splitn(2, ':').nth(1).unwrap().to_string();
-                let reference = self.send(UploadRequest { path });
+                let filepart: PathBuf = arg::source_path(0).into();
+                let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
+                let path = arg::dest_path();
+                let reference = self.send(UploadRequest { path, filepart });
                 *self.file_transfer_reference.borrow_mut() = reference;
             }
             let proxy = TransferNotificationProxy { oxy: self.clone() };
@@ -516,26 +526,29 @@ impl Oxy {
             "Transfer notified. Available: {}",
             self.copy_peer.borrow_mut().as_mut().unwrap().available()
         );
-        let data = self.copy_peer.borrow_mut().as_mut().unwrap().recv_message();
-        if data.is_none() {
-            return;
-        }
-        let data = data.unwrap();
-        trace!("Transfer has a message {:?}", data);
-        let filenumber = byteorder::BE::read_u64(&data[..8]);
-        if filenumber == *self.fetch_file_ticker.borrow_mut() {
-            let reference = *self.file_transfer_reference.borrow_mut();
-            self.send(FileData {
-                data: data[8..].to_vec(),
-                reference,
-            });
-        } else {
-            assert!(filenumber == *self.fetch_file_ticker.borrow_mut() + 1);
-            *self.fetch_file_ticker.borrow_mut() += 1;
-            let path = arg::matches().values_of("source").unwrap().nth(filenumber as usize).unwrap().to_string();
-            let path = path.splitn(2, ':').nth(1).unwrap().to_string();
-            let reference = self.send(UploadRequest { path });
-            *self.file_transfer_reference.borrow_mut() = reference;
+        let data = self.copy_peer.borrow_mut().as_mut().unwrap().recv_all_messages();
+        for data in data {
+            trace!("Transfer has a message {:?}", data);
+            let filenumber = byteorder::BE::read_u64(&data[..8]);
+            if filenumber == *self.fetch_file_ticker.borrow_mut() {
+                let reference = *self.file_transfer_reference.borrow_mut();
+                self.send(FileData {
+                    data: data[8..].to_vec(),
+                    reference,
+                });
+            } else {
+                assert!(filenumber == *self.fetch_file_ticker.borrow_mut() + 1);
+                *self.fetch_file_ticker.borrow_mut() += 1;
+                let filepart: PathBuf = arg::source_path(filenumber).into();
+                let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
+                let path = arg::dest_path();
+                let reference = self.send(UploadRequest { path, filepart });
+                *self.file_transfer_reference.borrow_mut() = reference;
+                self.send(FileData {
+                    data: data[8..].to_vec(),
+                    reference,
+                });
+            }
         }
     }
 

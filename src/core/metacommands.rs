@@ -2,7 +2,7 @@ use clap::{self, App, AppSettings, Arg, SubCommand};
 use core::{BindNotificationProxy, Oxy, PortBind, SocksBind, SocksBindNotificationProxy};
 use message::OxyMessage::*;
 use num;
-use std::{cell::RefCell, fs::File, rc::Rc};
+use std::{cell::RefCell, fs::File, path::PathBuf, rc::Rc};
 use transportation::{
     self, mio::{net::TcpListener, PollOpt, Ready, Token},
 };
@@ -112,14 +112,17 @@ impl Oxy {
                         self.transfers_in.borrow_mut().insert(id, file);
                     }
                     "upload" => {
-                        let file = File::open(matches.value_of("local path").unwrap());
+                        let buf: PathBuf = matches.value_of("local path").unwrap().into();
+                        let buf = buf.canonicalize().unwrap();
+                        let file = File::open(buf.clone());
                         if file.is_err() {
                             error!("Failed to open local file for reading: {}", matches.value_of("local path").unwrap());
                             return;
                         }
                         let file = file.unwrap();
                         let id = self.send(UploadRequest {
-                            path: matches.value_of("remote path").unwrap().to_string(),
+                            path:     matches.value_of("remote path").unwrap().to_string(),
+                            filepart: buf.file_name().unwrap().to_string_lossy().into_owned(),
                         });
                         debug!("Upload started");
                         self.transfers_out.borrow_mut().push((id, file));

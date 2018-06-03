@@ -11,7 +11,7 @@ pub enum OxyMessage {
 	PtyInput { data: Vec<u8> },
 	PtyOutput { data: Vec<u8> },
 	DownloadRequest { path: String },
-	UploadRequest { path: String },
+	UploadRequest { path: String, filepart: String },
 	FileSize { reference: u64, size: u64 },
 	FileData { reference: u64, data: Vec<u8> },
 	RemoteOpen { addr: String },

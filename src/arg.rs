@@ -139,8 +139,23 @@ fn path_peer(arg: &str) -> Vec<SocketAddr> {
     (arg.splitn(2, ':').next().unwrap(), 2600).to_socket_addrs().unwrap().collect()
 }
 
+fn path_path(arg: &str) -> String {
+    if arg.starts_with('[') {
+        return arg.splitn(2, ']').nth(1).unwrap().splitn(2, ':').nth(1).unwrap().to_string();
+    }
+    arg.splitn(2, ':').nth(1).unwrap().to_string()
+}
+
 pub fn source_peer(n: u64) -> Vec<SocketAddr> {
     path_peer(matches().values_of("source").unwrap().nth(n as usize).unwrap())
+}
+
+pub fn source_path(n: u64) -> String {
+    path_path(matches().values_of("source").unwrap().nth(n as usize).unwrap())
+}
+
+pub fn dest_path() -> String {
+    path_path(matches().value_of("dest").unwrap())
 }
 
 pub fn dest_peer() -> Vec<SocketAddr> {
