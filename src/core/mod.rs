@@ -41,6 +41,7 @@ pub struct Oxy {
     copy_peer: Rc<RefCell<Option<BufferedTransport>>>,
     is_copy_source: Rc<RefCell<bool>>,
     fetch_file_ticker: Rc<RefCell<u64>>,
+    file_transfer_reference: Rc<RefCell<u64>>,
     #[cfg(unix)]
     pty: Rc<RefCell<Option<Pty>>>,
     #[cfg(unix)]
@@ -77,6 +78,7 @@ impl Oxy {
             copy_peer: Rc::new(RefCell::new(None)),
             is_copy_source: Rc::new(RefCell::new(false)),
             fetch_file_ticker: Rc::new(RefCell::new(0)),
+            file_transfer_reference: Rc::new(RefCell::new(0)),
             #[cfg(unix)]
             pty: Rc::new(RefCell::new(None)),
             #[cfg(unix)]
@@ -104,6 +106,11 @@ impl Oxy {
     pub fn fetch_files(&self, peer: BufferedTransport) {
         *self.copy_peer.borrow_mut() = Some(peer);
         *self.is_copy_source.borrow_mut() = true;
+    }
+
+    pub fn recv_files(&self, peer: BufferedTransport) {
+        *self.copy_peer.borrow_mut() = Some(peer);
+        *self.is_copy_source.borrow_mut() = false;
     }
 
     pub fn launch(&self) -> ! {
@@ -228,9 +235,7 @@ impl Oxy {
                     self.transfers_in.borrow_mut().remove(&reference);
                     if self.copy_peer.borrow_mut().is_some() {
                         *self.fetch_file_ticker.borrow_mut() += 1;
-                        if *self.fetch_file_ticker.borrow_mut() >= arg::matches().occurrences_of("source") {
-                            ::std::process::exit(0);
-                        } else {
+                        if *self.fetch_file_ticker.borrow_mut() < arg::matches().occurrences_of("source") {
                             let filename = arg::matches()
                                 .values_of("source")
                                 .unwrap()
@@ -460,11 +465,21 @@ impl Oxy {
 
     fn do_post_auth(&self) {
         if self.copy_peer.borrow_mut().is_some() {
-            let filename = arg::matches().value_of("source").unwrap();
-            let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-            let cmd = ["download", &filename, "unused"].to_vec();
-            let cmd = cmd.iter().map(|x| x.to_string()).collect();
-            self.handle_metacommand(cmd);
+            if *self.is_copy_source.borrow_mut() {
+                let filename = arg::matches().value_of("source").unwrap();
+                let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
+                let cmd = ["download", &filename, "unused"].to_vec();
+                let cmd = cmd.iter().map(|x| x.to_string()).collect();
+                self.handle_metacommand(cmd);
+            } else {
+                let path = arg::matches().values_of("source").unwrap().next().unwrap().to_string();
+                let path = path.splitn(2, ':').nth(1).unwrap().to_string();
+                let reference = self.send(UploadRequest { path });
+                *self.file_transfer_reference.borrow_mut() = reference;
+            }
+            let proxy = TransferNotificationProxy { oxy: self.clone() };
+            self.copy_peer.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
+            self.notify_transfer();
             return;
         }
         if perspective() == Alice {
@@ -486,6 +501,44 @@ impl Oxy {
         }
     }
 
+    fn notify_transfer(&self) {
+        if *self.is_copy_source.borrow_mut() {
+            if *self.fetch_file_ticker.borrow_mut() >= arg::matches().occurrences_of("source") {
+                let peer = self.copy_peer.borrow_mut();
+                let peer2 = peer.as_ref().unwrap();
+                if peer2.write_buffer.borrow_mut().is_empty() {
+                    ::std::process::exit(0);
+                }
+            }
+            return;
+        }
+        trace!(
+            "Transfer notified. Available: {}",
+            self.copy_peer.borrow_mut().as_mut().unwrap().available()
+        );
+        let data = self.copy_peer.borrow_mut().as_mut().unwrap().recv_message();
+        if data.is_none() {
+            return;
+        }
+        let data = data.unwrap();
+        trace!("Transfer has a message {:?}", data);
+        let filenumber = byteorder::BE::read_u64(&data[..8]);
+        if filenumber == *self.fetch_file_ticker.borrow_mut() {
+            let reference = *self.file_transfer_reference.borrow_mut();
+            self.send(FileData {
+                data: data[8..].to_vec(),
+                reference,
+            });
+        } else {
+            assert!(filenumber == *self.fetch_file_ticker.borrow_mut() + 1);
+            *self.fetch_file_ticker.borrow_mut() += 1;
+            let path = arg::matches().values_of("source").unwrap().nth(filenumber as usize).unwrap().to_string();
+            let path = path.splitn(2, ':').nth(1).unwrap().to_string();
+            let reference = self.send(UploadRequest { path });
+            *self.file_transfer_reference.borrow_mut() = reference;
+        }
+    }
+
     fn notify_socks_bind(&self, token: u64) {
         let mut borrow = self.socks_binds.borrow_mut();
         let bind = borrow.get_mut(&token).unwrap();
@@ -499,6 +552,7 @@ impl Oxy {
         let proxy = Rc::new(proxy);
         proxy.bt.set_notify(proxy.clone());
     }
+
     fn notify_socks_connection(&self, proxy: &SocksConnectionNotificationProxy) {
         let data = proxy.bt.take();
         if data.is_empty() {
@@ -563,6 +617,26 @@ impl Notifiable for Oxy {
                 };
             }
             ::std::process::exit(0);
+        }
+        if self.copy_peer.borrow_mut().is_some() {
+            if !*self.is_copy_source.borrow_mut() {
+                let peer = self.copy_peer.borrow_mut();
+                if peer.as_ref().unwrap().is_closed() {
+                    if peer.as_ref().unwrap().available() == 0 {
+                        let underlying = self.underlying_transport.borrow();
+                        let mt = &underlying.as_ref().unwrap().mt;
+                        match mt {
+                            transportation::MessageTransport::EncryptedTransport(et) => {
+                                if et.is_drained_forward() {
+                                    // Boy, that sure is a tall if stack, eh?
+                                    ::std::process::exit(0);
+                                }
+                            }
+                            _ => panic!(),
+                        }
+                    }
+                }
+            }
         }
         for message in self.underlying_transport.borrow().as_ref().unwrap().recv_all() {
             let message_number = self.tick_incoming();
@@ -669,4 +743,14 @@ impl Notifiable for SocksConnectionNotificationProxy {
 enum SocksState {
     Initial,
     Authed,
+}
+
+struct TransferNotificationProxy {
+    oxy: Oxy,
+}
+
+impl Notifiable for TransferNotificationProxy {
+    fn notify(&self) {
+        self.oxy.notify_transfer();
+    }
 }

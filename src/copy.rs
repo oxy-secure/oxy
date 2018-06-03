@@ -1,6 +1,7 @@
+use arg;
 use core::Oxy;
-use std::{net::TcpStream, rc::Rc};
-use transportation::{BufferedTransport, Notifiable, Notifies};
+use std::net::TcpStream;
+use transportation::BufferedTransport;
 
 pub fn run() {
     // If there's different remotes in sources, split the sources up into
@@ -16,11 +17,11 @@ fn remote_to_different_remote() {
     match fork() {
         Ok(Parent { .. }) => {
             close(sockb).unwrap();
-            run_source(socka.into());
+            run_dest(socka.into());
         }
         Ok(Child) => {
             close(socka).unwrap();
-            run_dest(sockb.into());
+            run_source(sockb.into());
         }
         Err(_) => {
             panic!("Fork failed.");
@@ -29,26 +30,17 @@ fn remote_to_different_remote() {
 }
 
 fn run_source(peer: BufferedTransport) {
-    let dest = ::arg::matches().value_of("source").unwrap();
-    let dest = dest.split(':').next().unwrap().to_string();
-    let dest = "127.0.0.1:2600"; // TODO
-    let remote = TcpStream::connect(dest).unwrap();
+    let dest = arg::source_peer(0);
+    let remote = TcpStream::connect(&dest[..]).unwrap();
     let oxy = Oxy::create(remote);
     oxy.fetch_files(peer);
     oxy.launch();
 }
 
-struct DiscardNotify {
-    bt: BufferedTransport,
-}
-
-impl Notifiable for DiscardNotify {
-    fn notify(&self) {
-        self.bt.take();
-    }
-}
-
 fn run_dest(peer: BufferedTransport) {
-    let discard = DiscardNotify { bt: peer.clone() };
-    peer.set_notify(Rc::new(discard));
+    let dest = arg::dest_peer();
+    let remote = TcpStream::connect(&dest[..]).unwrap();
+    let oxy = Oxy::create(remote);
+    oxy.recv_files(peer);
+    oxy.launch();
 }

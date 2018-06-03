@@ -1,6 +1,8 @@
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger;
-use std::env;
+use std::{
+    env, net::{SocketAddr, ToSocketAddrs},
+};
 use transportation::EncryptionPerspective;
 
 lazy_static! {
@@ -127,6 +129,22 @@ pub fn mode() -> String {
 
 pub fn matches() -> &'static ArgMatches<'static> {
     MATCHES.subcommand_matches(mode()).unwrap()
+}
+
+fn path_peer(arg: &str) -> Vec<SocketAddr> {
+    if arg.starts_with('[') {
+        let peer = arg.splitn(2, '[').nth(1).unwrap().splitn(2, ']').next().unwrap().to_string();
+        return peer.to_socket_addrs().unwrap().collect();
+    }
+    (arg.splitn(2, ':').next().unwrap(), 2600).to_socket_addrs().unwrap().collect()
+}
+
+pub fn source_peer(n: u64) -> Vec<SocketAddr> {
+    path_peer(matches().values_of("source").unwrap().nth(n as usize).unwrap())
+}
+
+pub fn dest_peer() -> Vec<SocketAddr> {
+    path_peer(matches().value_of("dest").unwrap())
 }
 
 pub fn destination() -> String {
