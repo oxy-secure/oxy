@@ -125,8 +125,10 @@ impl Notifiable for RecvFilesService {
                     let part = part.canonicalize().unwrap();
                     path.push(part.file_name().unwrap());
                 }
+                pop_file_size();
                 let file = File::create(path).unwrap();
                 *self.file.borrow_mut() = Some(file);
+                *self.id.borrow_mut() = number;
             }
             self.file.borrow_mut().as_mut().unwrap().write_all(&msg[8..]).unwrap();
             let sent_amount = msg.len() - 8;
@@ -156,7 +158,7 @@ impl Notifiable for SendFilesService {
                 return;
             }
             let file = File::open(arg::source_path(id)).unwrap();
-            set_file_size(file.metadata().unwrap().len());
+            push_file_size(file.metadata().unwrap().len());
             *self.file.borrow_mut() = Some(file);
         }
         if self.bt.has_write_space() {
@@ -184,6 +186,17 @@ thread_local! {
     static PROGRESS_BAR_SPACE_MADE: RefCell<bool> = RefCell::new(false);
     static CURRENT_FILE_TRANSFER_SIZE: RefCell<Option<u64>> = RefCell::new(None);
     static BYTES_TRANSFERED: RefCell<u64> = RefCell::new(0);
+    static QUEUED_FILE_SIZES: RefCell<Vec<u64>> = RefCell::new(Vec::new());
+}
+
+pub fn push_file_size(size: u64) {
+    trace!("Pushing a file size");
+    QUEUED_FILE_SIZES.with(|x| x.borrow_mut().push(size));
+}
+
+pub fn pop_file_size() {
+    trace!("Popping a file size");
+    set_file_size(QUEUED_FILE_SIZES.with(|x| x.borrow_mut().remove(0)));
 }
 
 pub fn set_file_size(size: u64) {

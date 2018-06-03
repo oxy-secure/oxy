@@ -243,7 +243,7 @@ impl Oxy {
                 self.transfers_in.borrow_mut().insert(message_number, file);
             }
             FileSize { reference: _, size } => {
-                ::copy::set_file_size(size);
+                ::copy::push_file_size(size);
             }
             FileData { reference, data } => {
                 if data.is_empty() {
@@ -557,6 +557,7 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                ::copy::pop_file_size();
                 ::copy::draw_progress_bar((data.len() - 8) as u64);
             }
         }
