@@ -484,6 +484,23 @@ impl Oxy {
         self.do_post_auth();
     }
 
+    fn register_signal_handler(&self) {
+        let proxy = SignalNotificationProxy { oxy: self.clone() };
+        transportation::set_signal_handler(Rc::new(proxy));
+    }
+
+    fn notify_signal(&self) {
+        match transportation::get_signal_name().as_str() {
+            "SIGWINCH" => {
+                if perspective() == Alice && self.ui.borrow().is_some() {
+                    let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
+                    self.send(PtySizeAdvertisement { w, h });
+                }
+            }
+            _ => (),
+        };
+    }
+
     fn do_post_auth(&self) {
         if self.copy_peer.borrow_mut().is_some() {
             if *self.is_copy_source.borrow_mut() {
@@ -508,6 +525,7 @@ impl Oxy {
             }
             self.create_ui();
         }
+        self.register_signal_handler();
     }
 
     fn run_batched_metacommands(&self) {
@@ -779,5 +797,15 @@ struct TransferNotificationProxy {
 impl Notifiable for TransferNotificationProxy {
     fn notify(&self) {
         self.oxy.notify_transfer();
+    }
+}
+
+struct SignalNotificationProxy {
+    oxy: Oxy,
+}
+
+impl Notifiable for SignalNotificationProxy {
+    fn notify(&self) {
+        self.oxy.notify_signal();
     }
 }
