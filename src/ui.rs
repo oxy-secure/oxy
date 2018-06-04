@@ -44,6 +44,7 @@ impl Ui {
             let old_panic_hook = ::std::panic::take_hook();
             ::std::panic::set_hook(Box::new(move |x| {
                 ::std::process::Command::new("stty").arg("cooked").arg("echo").spawn().ok();
+                cleanup();
                 old_panic_hook(x)
             }));
             ui.raw();
@@ -120,6 +121,16 @@ impl Ui {
     }
 }
 
+pub fn cleanup() {
+    #[cfg(unix)]
+    unsafe {
+        let mut bits: i32 = 0;
+        ::libc::fcntl(0, ::libc::F_GETFL, &mut bits);
+        bits &= !::libc::O_NONBLOCK;
+        ::libc::fcntl(0, ::libc::F_SETFL, bits);
+    }
+}
+
 impl Notifiable for Ui {
     fn notify(&self) {
         #[cfg(unix)]
@@ -135,11 +146,15 @@ impl Notifiable for Ui {
             }
             if data[..] == f12[..] {
                 self.cooked();
+                cleanup();
                 ::std::process::exit(0);
             }
             if !self.is_raw() {
                 match String::from_utf8(data.to_vec()).unwrap().trim() {
-                    "quit" => ::std::process::exit(0),
+                    "quit" => {
+                        cleanup();
+                        ::std::process::exit(0)
+                    }
                     x => {
                         let parts = shlex::split(x);
                         if parts.is_none() {

@@ -658,6 +658,7 @@ impl Notifiable for Oxy {
                 if let Some(x) = self.ui.borrow_mut().as_ref() {
                     x.cooked()
                 };
+                ::ui::cleanup();
             }
             ::std::process::exit(0);
         }
