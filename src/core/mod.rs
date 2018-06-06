@@ -11,11 +11,12 @@ use pty::Pty;
 use shlex;
 use std::{
     cell::RefCell, collections::HashMap, fs::{metadata, File}, io::{Read, Write}, net::ToSocketAddrs, path::PathBuf, rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
     self, mio::{
         net::{TcpListener, TcpStream}, PollOpt, Ready, Token,
-    }, BufferedTransport, EncryptedTransport,
+    }, set_timeout, BufferedTransport, EncryptedTransport,
     EncryptionPerspective::{Alice, Bob}, MessageTransport, Notifiable, Notifies, ProtocolTransport,
 };
 #[cfg(unix)]
@@ -41,6 +42,7 @@ pub struct Oxy {
     copy_peer: Rc<RefCell<Option<BufferedTransport>>>,
     is_copy_source: Rc<RefCell<bool>>,
     fetch_file_ticker: Rc<RefCell<u64>>,
+    last_message_seen: Rc<RefCell<Instant>>,
     file_transfer_reference: Rc<RefCell<Option<u64>>>,
     #[cfg(unix)]
     pty: Rc<RefCell<Option<Pty>>>,
@@ -79,6 +81,7 @@ impl Oxy {
             is_copy_source: Rc::new(RefCell::new(false)),
             fetch_file_ticker: Rc::new(RefCell::new(0)),
             file_transfer_reference: Rc::new(RefCell::new(None)),
+            last_message_seen: Rc::new(RefCell::new(Instant::now())),
             #[cfg(unix)]
             pty: Rc::new(RefCell::new(None)),
             #[cfg(unix)]
@@ -145,6 +148,12 @@ impl Oxy {
         trace!("Received message {}: {:?}", message_number, message);
         match message {
             DummyMessage { .. } => (),
+            Ping {} => {
+                self.send(Pong {});
+            }
+            Pong {} => {
+                *self.last_message_seen.borrow_mut() = Instant::now();
+            }
             BasicCommand { command } => {
                 assert!(perspective() == Bob);
                 #[cfg(unix)]
@@ -526,6 +535,7 @@ impl Oxy {
             self.create_ui();
         }
         self.register_signal_handler();
+        set_timeout(Rc::new(KeepaliveProxy { oxy: self.clone() }), Duration::from_secs(60));
     }
 
     fn run_batched_metacommands(&self) {
@@ -579,6 +589,20 @@ impl Oxy {
                 ::copy::draw_progress_bar((data.len() - 8) as u64);
             }
         }
+    }
+
+    fn notify_keepalive(&self) {
+        trace!("Keepalive!");
+        if self.last_message_seen.borrow().elapsed() > Duration::from_secs(180) {
+            trace!("Exiting due to lack of keepalives");
+            if let Some(x) = self.ui.borrow_mut().as_ref() {
+                x.cooked()
+            };
+            ::ui::cleanup();
+            ::std::process::exit(2);
+        }
+        self.send(Ping {});
+        set_timeout(Rc::new(KeepaliveProxy { oxy: self.clone() }), Duration::from_secs(60));
     }
 
     fn notify_socks_bind(&self, token: u64) {
@@ -688,7 +712,6 @@ impl Notifiable for Oxy {
         }
         self.service_transfers();
         self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR
-        trace!("Here");
     }
 }
 
@@ -808,5 +831,15 @@ struct SignalNotificationProxy {
 impl Notifiable for SignalNotificationProxy {
     fn notify(&self) {
         self.oxy.notify_signal();
+    }
+}
+
+struct KeepaliveProxy {
+    oxy: Oxy,
+}
+
+impl Notifiable for KeepaliveProxy {
+    fn notify(&self) {
+        self.oxy.notify_keepalive();
     }
 }

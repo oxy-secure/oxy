@@ -21,4 +21,6 @@ pub enum OxyMessage {
 	BindConnectionAccepted { reference: u64 },
 	TunnelRequest { tap: bool, name: String },
 	TunnelData { reference: u64, data: Vec<u8> },
+    Ping { },
+    Pong { },
 }
