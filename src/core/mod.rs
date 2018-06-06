@@ -10,7 +10,7 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::{metadata, File}, io::{Read, Write}, net::ToSocketAddrs, path::PathBuf, rc::Rc,
+    cell::RefCell, collections::HashMap, fs::{metadata, symlink_metadata, File}, io::{Read, Write}, net::ToSocketAddrs, path::PathBuf, rc::Rc,
     time::{Duration, Instant},
 };
 use transportation::{
@@ -200,7 +200,10 @@ impl Oxy {
             PtyInput { data } => {
                 assert!(perspective() == Bob);
                 if self.pty.borrow_mut().is_none() {
-                    self.send(Reject { message_number });
+                    self.send(Reject {
+                        message_number,
+                        note: "No PTY exists".to_string(),
+                    });
                     return;
                 }
                 self.pty.borrow_mut().as_mut().unwrap().underlying.put(&data[..]);
@@ -212,22 +215,28 @@ impl Oxy {
             }
             BasicCommandOutput { stdout, stderr } => {
                 assert!(perspective() == Alice);
-                debug!("BasicCommandOutput {:?}, {:?}", stdout, stderr);
+                info!("BasicCommandOutput {:?}, {:?}", stdout, stderr);
                 if let Ok(stdout) = String::from_utf8(stdout) {
-                    debug!("stdout:\n-----\n{}\n-----", stdout);
+                    info!("stdout:\n-----\n{}\n-----", stdout);
                 }
             }
             DownloadRequest { path } => {
                 assert!(perspective() == Bob);
                 let file = File::open(path);
                 if file.is_err() {
-                    self.send(Reject { message_number });
+                    self.send(Reject {
+                        message_number,
+                        note: "Failed to open file".to_string(),
+                    });
                     return;
                 }
                 let file = file.unwrap();
                 let metadata = file.metadata();
                 if metadata.is_err() {
-                    self.send(Reject { message_number });
+                    self.send(Reject {
+                        message_number,
+                        note: "Failed to stat file".to_string(),
+                    });
                     return;
                 }
                 let metadata = metadata.unwrap();
@@ -357,6 +366,29 @@ impl Oxy {
             TunnelData { reference, data } => {
                 let borrow = self.tuntaps.borrow_mut();
                 borrow.get(&reference).unwrap().send(&data);
+            }
+            StatRequest { path } => {
+                let info = symlink_metadata(path);
+                if info.is_err() {
+                    self.send(Reject {
+                        message_number,
+                        note: "stat failed".to_string(),
+                    });
+                    return;
+                }
+                let info = info.unwrap();
+                let message = StatResult {
+                    reference:         message_number,
+                    len:               info.len(),
+                    is_dir:            info.is_dir(),
+                    is_file:           info.is_file(),
+                    atime:             None,
+                    ctime:             None,
+                    mtime:             None,
+                    owner:             "".to_string(),
+                    group:             "".to_string(),
+                    octal_permissions: 0,
+                };
             }
             _ => (),
         }
