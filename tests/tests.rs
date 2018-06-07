@@ -4,7 +4,7 @@ extern crate transportation;
 
 use parking_lot::Mutex;
 use std::{
-    fs::{metadata, remove_file}, process::{Child, Command, Stdio}, thread::sleep, time::Duration,
+    fs::{metadata, remove_file, File}, io::Read, process::{Child, Command, Stdio}, thread::sleep, time::Duration,
 };
 use transportation::ring::rand::SecureRandom;
 
@@ -52,29 +52,40 @@ fn copy_single_file() {
 
 #[test]
 #[cfg(unix)]
-fn portfwd() {
+fn portfwd_l() {
+    portfwd("L");
+}
+
+#[test]
+#[cfg(unix)]
+fn portfwd_r() {
+    portfwd("R");
+}
+
+#[cfg(unix)]
+fn portfwd(spec: &str) {
     let _guard = SERIAL_TESTS.lock();
     let identity = mk_identity();
     let mut server = Command::new(&binpath()).args(&["serve-one", &identity]).spawn().unwrap();
     hold();
+    let spec = format!("{} 127.0.0.1:34614 127.0.0.1:44614", spec);
     let mut client = Command::new(&binpath())
-        .args(&["client", "127.0.0.1:2600", &identity, "-m", "L 127.0.0.1:34614 127.0.0.1:44614"])
+        .args(&["client", "127.0.0.1:2600", &identity, "-m", &spec])
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
     hold();
-    let mut ncat_listener = Command::new("bash")
-        .arg("-c")
-        .arg("ncat -l 44614 > /tmp/oxy-test-portfwd")
-        .spawn()
-        .unwrap();
+    let mut ncat_listener = system("ncat --ssl -l 44614 >/tmp/oxy-test-portfwd");
     hold();
-    let mut ncat_sender = system("ncat 127.0.0.1 34614 < <(echo -n abcdef)");
+    let mut ncat_sender = system("ncat --ssl 127.0.0.1 34614 < <(echo -n abcdef)");
     hold();
-    assert_eq!(metadata("/tmp/oxy-test-portfwd").unwrap().len(), 6);
     server.kill().ok();
     client.kill().ok();
     ncat_listener.kill().ok();
     ncat_sender.kill().ok();
+    assert_eq!(metadata("/tmp/oxy-test-portfwd").unwrap().len(), 6);
+    let mut read_buf = Vec::new();
+    File::open("/tmp/oxy-test-portfwd").unwrap().read_to_end(&mut read_buf).unwrap();
+    assert_eq!(&read_buf, b"abcdef");
     remove_file("/tmp/oxy-test-portfwd").unwrap();
 }
