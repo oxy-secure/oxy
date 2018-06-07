@@ -1,4 +1,4 @@
-use super::{BindNotificationProxy, PortBind, PortStream};
+use super::{PortBind, PortStream};
 use arg::{self, perspective};
 use byteorder::{self, ByteOrder};
 use core::Oxy;
@@ -6,7 +6,7 @@ use message::OxyMessage::{self, *};
 #[cfg(unix)]
 use pty::Pty;
 use std::{
-    cell::RefCell, fs::{metadata, read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
+    fs::{metadata, read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
 };
 use transportation::{
     self, mio::{
@@ -209,12 +209,9 @@ impl Oxy {
             RemoteBind { addr } => {
                 assert!(perspective() == Bob);
                 let bind = TcpListener::bind(&addr.parse().unwrap()).unwrap();
-                let proxy = BindNotificationProxy {
-                    oxy:   self.clone(),
-                    token: Rc::new(RefCell::new(message_number)),
-                };
-                let proxy = Rc::new(proxy);
-                let token = transportation::insert_listener(proxy.clone());
+                let proxy = self.clone();
+                let proxy = Rc::new(move || proxy.notify_bind(message_number));
+                let token = transportation::insert_listener(proxy);
                 transportation::borrow_poll(|poll| {
                     poll.register(&bind, Token(token), Ready::readable(), PollOpt::level()).unwrap();
                 });

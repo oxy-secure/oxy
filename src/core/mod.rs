@@ -3,7 +3,7 @@ mod kex;
 mod metacommands;
 
 use self::kex::{KexData, NakedState};
-use arg::{self, perspective};
+use arg;
 use byteorder::{self, ByteOrder};
 use keys;
 use message::OxyMessage::{self, *};
@@ -50,11 +50,15 @@ pub struct Oxy {
 
 impl Oxy {
     fn alice_only(&self) {
-        assert!(perspective() == Alice);
+        assert!(self.perspective() == Alice);
     }
 
     fn bob_only(&self) {
-        assert!(perspective() == Bob);
+        assert!(self.perspective() == Bob);
+    }
+
+    fn perspective(&self) -> transportation::EncryptionPerspective {
+        arg::perspective()
     }
 
     pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
@@ -95,9 +99,16 @@ impl Oxy {
     }
 
     fn create_ui(&self) {
-        if perspective() == Bob {
+        if self.perspective() == Bob {
             return;
         }
+        #[cfg(unix)]
+        {
+            if !::termion::is_tty(&::std::io::stdout()) {
+                return;
+            }
+        }
+
         *self.ui.borrow_mut() = Some(Ui::create());
         let proxy = self.clone();
         let proxy = Rc::new(move || proxy.notify_ui());
@@ -119,10 +130,10 @@ impl Oxy {
     }
 
     pub fn soft_launch(&self) {
-        if perspective() == Alice {
+        if self.perspective() == Alice {
             self.advertise_client_key();
         }
-        if perspective() == Bob {
+        if self.perspective() == Bob {
             *self.naked_state.borrow_mut() = NakedState::WaitingForClientKey;
         }
     }
@@ -162,7 +173,7 @@ impl Oxy {
         let remote_addr = self.port_binds.borrow_mut().get_mut(&token).unwrap().remote_spec.clone();
         let local_addr = self.port_binds.borrow_mut().get_mut(&token).unwrap().local_spec.clone();
         debug!("Accepting a connection for local bind {}", local_addr);
-        let stream_token = match perspective() {
+        let stream_token = match self.perspective() {
             Alice => self.send(RemoteOpen { addr: remote_addr }),
             Bob => self.send(BindConnectionAccepted { reference: token }),
         };
@@ -268,7 +279,7 @@ impl Oxy {
         };
         let mut key = self.kex_data.borrow_mut().keymaterial.as_ref().unwrap().to_vec();
         key.extend(keys::static_key());
-        let et = EncryptedTransport::create(bt, arg::perspective(), &key);
+        let et = EncryptedTransport::create(bt, self.perspective(), &key);
         let pt = ProtocolTransport::create(et);
         let proxy = self.clone();
         pt.set_notify(Rc::new(move || proxy.notify_main_transport()));
@@ -285,7 +296,7 @@ impl Oxy {
     fn notify_signal(&self) {
         match transportation::get_signal_name().as_str() {
             "SIGWINCH" => {
-                if perspective() == Alice && self.ui.borrow().is_some() {
+                if self.perspective() == Alice && self.ui.borrow().is_some() {
                     let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
                     self.send(PtySizeAdvertisement { w, h });
                 }
@@ -299,7 +310,7 @@ impl Oxy {
             if *self.is_copy_source.borrow_mut() {
                 let filename = arg::matches().value_of("source").unwrap();
                 let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-                let cmd = ["download", &filename, "unused"].to_vec();
+                let cmd = ["download", &filename, "/dev/null"].to_vec();
                 let cmd = cmd.iter().map(|x| x.to_string()).collect();
                 self.handle_metacommand(cmd);
             }
@@ -309,7 +320,7 @@ impl Oxy {
             self.notify_transfer();
             return;
         }
-        if perspective() == Alice {
+        if self.perspective() == Alice {
             self.run_batched_metacommands();
             #[cfg(unix)]
             {
@@ -497,17 +508,6 @@ impl Oxy {
         }
         self.service_transfers();
         self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR
-    }
-}
-
-struct BindNotificationProxy {
-    oxy:   Oxy,
-    token: Rc<RefCell<u64>>,
-}
-
-impl Notifiable for BindNotificationProxy {
-    fn notify(&self) {
-        self.oxy.notify_bind(*self.token.borrow_mut());
     }
 }
 

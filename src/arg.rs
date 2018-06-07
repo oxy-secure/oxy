@@ -49,6 +49,7 @@ fn create_matches() -> ArgMatches<'static> {
         .long("metacommand")
         .takes_value(true)
         .multiple(true)
+        .number_of_values(1)
         .help("A command to run after the connection is established. The same commands from the F10 prompt.");
     let identity = Arg::with_name("identity")
         .short("i")

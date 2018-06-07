@@ -1,5 +1,5 @@
 use clap::{self, App, AppSettings, Arg, SubCommand};
-use core::{BindNotificationProxy, Oxy, PortBind, SocksBind, SocksBindNotificationProxy};
+use core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy};
 use message::OxyMessage::*;
 use num;
 use std::{cell::RefCell, fs::File, path::PathBuf, rc::Rc};
@@ -131,14 +131,13 @@ impl Oxy {
                         let remote_spec = matches.value_of("remote spec").unwrap().to_string();
                         let local_spec = matches.value_of("local spec").unwrap().to_string();
                         let bind = TcpListener::bind(&local_spec.parse().unwrap()).unwrap();
-                        let proxy = BindNotificationProxy {
-                            oxy:   self.clone(),
-                            token: Rc::new(RefCell::new(0)),
-                        };
-                        let proxy = Rc::new(proxy);
+                        let token_holder = Rc::new(RefCell::new(0));
+                        let token_holder2 = token_holder.clone();
+                        let proxy = self.clone();
+                        let proxy = Rc::new(move || proxy.notify_bind(*token_holder2.borrow()));
                         let token = transportation::insert_listener(proxy.clone());
                         let token_sized = <u64 as num::NumCast>::from(token).unwrap();
-                        *proxy.token.borrow_mut() = token_sized;
+                        *token_holder.borrow_mut() = token_sized;
                         transportation::borrow_poll(|poll| {
                             poll.register(&bind, Token(token), Ready::readable(), PollOpt::level()).unwrap();
                         });
