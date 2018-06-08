@@ -288,11 +288,13 @@ impl Oxy {
         self.do_post_auth();
     }
 
+    #[cfg(unix)]
     fn register_signal_handler(&self) {
         let proxy = self.clone();
         transportation::set_signal_handler(Rc::new(move || proxy.notify_signal()));
     }
 
+    #[cfg(unix)]
     fn notify_signal(&self) {
         match transportation::get_signal_name().as_str() {
             "SIGWINCH" => {
@@ -345,6 +347,7 @@ impl Oxy {
             }
             self.create_ui();
         }
+        #[cfg(unix)]
         self.register_signal_handler();
         let proxy = self.clone();
         set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
@@ -382,6 +385,7 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                #[cfg(unix)]
                 ::copy::draw_progress_bar((data.len() - 8) as u64);
             } else {
                 assert!(
@@ -397,7 +401,9 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                #[cfg(unix)]
                 ::copy::pop_file_size();
+                #[cfg(unix)]
                 ::copy::draw_progress_bar((data.len() - 8) as u64);
             }
         }

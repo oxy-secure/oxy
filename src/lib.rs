@@ -22,6 +22,7 @@ extern crate transportation;
 
 mod arg;
 mod client;
+#[cfg(unix)]
 mod copy;
 mod core;
 mod guide;
@@ -55,6 +56,7 @@ pub fn run() {
         "reverse-server" => server::reverse_server(),
         "reverse-client" => client::reverse_client(),
         "guide" => guide::print_guide(),
+        #[cfg(unix)]
         "copy" => copy::run(),
         _ => unreachable!(),
     }

@@ -145,6 +145,7 @@ impl Oxy {
                 self.transfers_in.borrow_mut().insert(message_number, file);
             }
             FileSize { reference: _, size } => {
+                #[cfg(unix)]
                 ::copy::push_file_size(size);
             }
             FileData { reference, data } => {
