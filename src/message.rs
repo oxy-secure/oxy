@@ -12,6 +12,7 @@ pub enum OxyMessage {
 	PtySizeAdvertisement { w: u16, h: u16 },
 	PtyInput { data: Vec<u8> },
 	PtyOutput { data: Vec<u8> },
+    PtyExited { status: i32 },
 	DownloadRequest { path: String },
 	UploadRequest { path: String, filepart: String },
 	FileSize { reference: u64, size: u64 },

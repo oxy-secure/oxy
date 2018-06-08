@@ -49,7 +49,11 @@ fn create_app() -> App<'static, 'static> {
                 "Open a remote PTY. \
                  Happens by default, usually not necessary",
             )
-            .arg(Arg::with_name("command").index(1).default_value("bash")),
+            .arg(
+                Arg::with_name("command")
+                    .index(1)
+                    .default_value(&::arg::matches().value_of("command").unwrap_or("bash")),
+            ),
         SubCommand::with_name("sh")
             .about(
                 "Run a remote basic-command. \

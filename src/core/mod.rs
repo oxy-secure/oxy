@@ -301,6 +301,21 @@ impl Oxy {
                     self.send(PtySizeAdvertisement { w, h });
                 }
             }
+            "SIGCHLD" => {
+                info!("Received SIGCHLD");
+                if self.pty.borrow().is_some() {
+                    let ptypid = self.pty.borrow().as_ref().unwrap().child_pid;
+                    let flags = ::nix::sys::wait::WaitPidFlag::WNOHANG;
+                    let waitresult = ::nix::sys::wait::waitpid(ptypid, Some(flags));
+                    use nix::sys::wait::WaitStatus::Exited;
+                    match waitresult {
+                        Ok(Exited(_pid, status)) => {
+                            self.send(PtyExited { status });
+                        }
+                        _ => (),
+                    };
+                }
+            }
             _ => (),
         };
     }
@@ -392,11 +407,7 @@ impl Oxy {
         trace!("Keepalive!");
         if self.last_message_seen.borrow().elapsed() > Duration::from_secs(180) {
             trace!("Exiting due to lack of keepalives");
-            if let Some(x) = self.ui.borrow_mut().as_ref() {
-                x.cooked()
-            };
-            ::ui::cleanup();
-            ::std::process::exit(2);
+            self.exit(2);
         }
         self.send(Ping {});
         let proxy = self.clone();
@@ -470,17 +481,21 @@ impl Oxy {
         }
     }
 
+    fn exit(&self, status: i32) -> ! {
+        #[cfg(unix)]
+        {
+            if let Some(x) = self.ui.borrow_mut().as_ref() {
+                x.cooked()
+            };
+            ::ui::cleanup();
+        }
+        ::std::process::exit(status);
+    }
+
     fn notify_main_transport(&self) {
         trace!("Core notified");
         if self.underlying_transport.borrow().as_ref().unwrap().is_closed() {
-            #[cfg(unix)]
-            {
-                if let Some(x) = self.ui.borrow_mut().as_ref() {
-                    x.cooked()
-                };
-                ::ui::cleanup();
-            }
-            ::std::process::exit(0);
+            self.exit(0);
         }
         if self.copy_peer.borrow_mut().is_some() {
             if !*self.is_copy_source.borrow_mut() {

@@ -64,8 +64,10 @@ impl Oxy {
                     warn!("PTY open failed");
                     return;
                 }
-                let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
-                self.send(PtySizeAdvertisement { w, h });
+                if self.ui.borrow().is_some() {
+                    let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
+                    self.send(PtySizeAdvertisement { w, h });
+                }
             }
             #[cfg(unix)]
             PtySizeAdvertisement { w, h } => {
@@ -87,7 +89,13 @@ impl Oxy {
             #[cfg(unix)]
             PtyOutput { data } => {
                 self.alice_only();
-                self.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
+                if self.ui.borrow().is_some() {
+                    self.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
+                } else {
+                    let stdout = ::std::io::stdout();
+                    let mut lock = stdout.lock();
+                    lock.write_all(&data).unwrap();
+                }
             }
             BasicCommandOutput { stdout, stderr } => {
                 self.alice_only();
@@ -287,6 +295,11 @@ impl Oxy {
                                       * message queue. */
                     answers: results,
                 });
+            }
+            PtyExited { status } => {
+                self.alice_only();
+                debug!("Remote PTY process exited with status {}", status);
+                self.exit(0);
             }
             _ => (),
         }
