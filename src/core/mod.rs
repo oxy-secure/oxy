@@ -1,8 +1,9 @@
+mod handle_message;
 mod kex;
 mod metacommands;
 
 use self::kex::{KexData, NakedState};
-use arg::{self, perspective};
+use arg;
 use byteorder::{self, ByteOrder};
 use keys;
 use message::OxyMessage::{self, *};
@@ -10,17 +11,14 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::{metadata, File}, io::{Read, Write}, net::ToSocketAddrs, path::PathBuf, rc::Rc,
-    time::{Duration, Instant},
+    cell::RefCell, collections::HashMap, fs::File, io::Read, path::PathBuf, rc::Rc, time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::{
-        net::{TcpListener, TcpStream}, PollOpt, Ready, Token,
-    }, set_timeout, BufferedTransport, EncryptedTransport,
-    EncryptionPerspective::{Alice, Bob}, MessageTransport, Notifiable, Notifies, ProtocolTransport,
+    self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
+    Notifiable, Notifies, ProtocolTransport,
 };
 #[cfg(unix)]
-use tuntap::{TunTap, TunTapType};
+use tuntap::TunTap;
 use ui::Ui;
 
 #[derive(Clone)]
@@ -52,11 +50,15 @@ pub struct Oxy {
 
 impl Oxy {
     fn alice_only(&self) {
-        assert!(perspective() == Alice);
+        assert!(self.perspective() == Alice);
     }
 
     fn bob_only(&self) {
-        assert!(perspective() == Bob);
+        assert!(self.perspective() == Bob);
+    }
+
+    fn perspective(&self) -> transportation::EncryptionPerspective {
+        arg::perspective()
     }
 
     pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
@@ -87,18 +89,29 @@ impl Oxy {
             #[cfg(unix)]
             tuntaps: Rc::new(RefCell::new(HashMap::new())),
         };
-        let proxy = NakedNotificationProxy { oxy: x.clone() };
-        x.naked_transport.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
+        let proxy = x.clone();
+        x.naked_transport
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .set_notify(Rc::new(move || proxy.notify_naked()));
         x
     }
 
     fn create_ui(&self) {
-        if perspective() == Bob {
+        if self.perspective() == Bob {
             return;
         }
+        #[cfg(unix)]
+        {
+            if !::termion::is_tty(&::std::io::stdout()) {
+                return;
+            }
+        }
+
         *self.ui.borrow_mut() = Some(Ui::create());
-        let proxy = UiNotificationProxy { oxy: self.clone() };
-        let proxy = Rc::new(proxy);
+        let proxy = self.clone();
+        let proxy = Rc::new(move || proxy.notify_ui());
         self.ui.borrow_mut().as_ref().unwrap().set_notify(proxy);
     }
 
@@ -117,10 +130,10 @@ impl Oxy {
     }
 
     pub fn soft_launch(&self) {
-        if perspective() == Alice {
+        if self.perspective() == Alice {
             self.advertise_client_key();
         }
-        if perspective() == Bob {
+        if self.perspective() == Bob {
             *self.naked_state.borrow_mut() = NakedState::WaitingForClientKey;
         }
     }
@@ -143,225 +156,6 @@ impl Oxy {
         message_number
     }
 
-    fn handle_message(&self, message: OxyMessage, message_number: u64) {
-        debug!("Recieved message {}", message_number);
-        trace!("Received message {}: {:?}", message_number, message);
-        match message {
-            DummyMessage { .. } => (),
-            Ping {} => {
-                self.send(Pong {});
-            }
-            Pong {} => {
-                *self.last_message_seen.borrow_mut() = Instant::now();
-            }
-            BasicCommand { command } => {
-                assert!(perspective() == Bob);
-                #[cfg(unix)]
-                let sh = "/bin/sh";
-                #[cfg(unix)]
-                let flag = "-c";
-                #[cfg(windows)]
-                let sh = "cmd.exe";
-                #[cfg(windows)]
-                let flag = "/c";
-                let result = ::std::process::Command::new(sh).arg(flag).arg(command).output();
-                if let Ok(result) = result {
-                    self.send(BasicCommandOutput {
-                        stdout: result.stdout,
-                        stderr: result.stderr,
-                    });
-                }
-            }
-            #[cfg(unix)]
-            PtyRequest { command } => {
-                assert!(perspective() == Bob);
-                let pty = Pty::forkpty(&command);
-                pty.underlying.set_notify(Rc::new(PtyNotificationProxy { oxy: self.clone() }));
-                *self.pty.borrow_mut() = Some(pty);
-                self.send(PtyRequestResponse { granted: true });
-                trace!("Successfully allocated PTY");
-            }
-            #[cfg(unix)]
-            PtyRequestResponse { granted } => {
-                assert!(perspective() == Alice);
-                if !granted {
-                    warn!("PTY open failed");
-                    return;
-                }
-                let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
-                self.send(PtySizeAdvertisement { w, h });
-            }
-            #[cfg(unix)]
-            PtySizeAdvertisement { w, h } => {
-                assert!(perspective() == Bob);
-                self.pty.borrow_mut().as_mut().unwrap().set_size(w, h);
-            }
-            #[cfg(unix)]
-            PtyInput { data } => {
-                assert!(perspective() == Bob);
-                if self.pty.borrow_mut().is_none() {
-                    self.send(Reject { message_number });
-                    return;
-                }
-                self.pty.borrow_mut().as_mut().unwrap().underlying.put(&data[..]);
-            }
-            #[cfg(unix)]
-            PtyOutput { data } => {
-                assert!(perspective() == Alice);
-                self.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
-            }
-            BasicCommandOutput { stdout, stderr } => {
-                assert!(perspective() == Alice);
-                debug!("BasicCommandOutput {:?}, {:?}", stdout, stderr);
-                if let Ok(stdout) = String::from_utf8(stdout) {
-                    debug!("stdout:\n-----\n{}\n-----", stdout);
-                }
-            }
-            DownloadRequest { path } => {
-                assert!(perspective() == Bob);
-                let file = File::open(path);
-                if file.is_err() {
-                    self.send(Reject { message_number });
-                    return;
-                }
-                let file = file.unwrap();
-                let metadata = file.metadata();
-                if metadata.is_err() {
-                    self.send(Reject { message_number });
-                    return;
-                }
-                let metadata = metadata.unwrap();
-                self.send(FileSize {
-                    reference: message_number,
-                    size:      metadata.len(),
-                });
-                self.transfers_out.borrow_mut().push((message_number, file));
-            }
-            UploadRequest { path, filepart } => {
-                assert!(perspective() == Bob);
-                if let Ok(meta) = metadata(&path) {
-                    if meta.is_dir() {
-                        let mut buf: PathBuf = path.into();
-                        buf.push(filepart);
-                        let file = File::create(buf).unwrap();
-                        self.transfers_in.borrow_mut().insert(message_number, file);
-                        return;
-                    }
-                }
-                let file = File::create(path).unwrap();
-                self.transfers_in.borrow_mut().insert(message_number, file);
-            }
-            FileSize { reference: _, size } => {
-                ::copy::push_file_size(size);
-            }
-            FileData { reference, data } => {
-                if data.is_empty() {
-                    debug!("File transfer completed");
-                    self.transfers_in.borrow_mut().remove(&reference);
-                    if self.copy_peer.borrow_mut().is_some() {
-                        *self.fetch_file_ticker.borrow_mut() += 1;
-                        if *self.fetch_file_ticker.borrow_mut() < arg::matches().occurrences_of("source") {
-                            let filename = arg::matches()
-                                .values_of("source")
-                                .unwrap()
-                                .nth(*self.fetch_file_ticker.borrow_mut() as usize)
-                                .unwrap();
-                            let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-                            let cmd = ["download", &filename, "unused"].to_vec();
-                            let cmd = cmd.iter().map(|x| x.to_string()).collect();
-                            self.handle_metacommand(cmd);
-                        } else {
-                            let mut message = [0u8; 8];
-                            byteorder::BE::write_u64(&mut message, ::std::u64::MAX);
-                            self.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
-                            trace!("Source is done.");
-                        }
-                    }
-                    return;
-                }
-                if self.copy_peer.borrow_mut().is_none() {
-                    self.transfers_in.borrow_mut().get_mut(&reference).unwrap().write_all(&data[..]).unwrap();
-                } else {
-                    let ticker = *self.fetch_file_ticker.borrow_mut();
-                    let mut message: Vec<u8> = Vec::new();
-                    message.resize(8, 0);
-                    byteorder::BE::write_u64(&mut message[..8], ticker);
-                    message.extend(&data);
-                    self.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
-                }
-            }
-            BindConnectionAccepted { reference } => {
-                assert!(perspective() == Alice);
-                let addr = self.remote_bind_destinations.borrow_mut().get(&reference).unwrap().parse().unwrap();
-                let stream = TcpStream::connect(&addr).unwrap();
-                let bt = BufferedTransport::from(stream);
-                let stream = PortStream {
-                    stream: bt,
-                    token:  message_number,
-                    oxy:    self.clone(),
-                    local:  false,
-                };
-                let stream2 = Rc::new(stream.clone());
-                stream.stream.set_notify(stream2);
-                self.remote_streams.borrow_mut().insert(message_number, stream);
-            }
-            RemoteOpen { addr } => {
-                assert!(perspective() == Bob);
-                let dest = addr.to_socket_addrs().unwrap().next().unwrap();
-                debug!("Resolved RemoteOpen destination to {:?}", dest);
-                let stream = TcpStream::connect(&dest).unwrap();
-                let bt = BufferedTransport::from(stream);
-                let stream = PortStream {
-                    stream: bt,
-                    token:  message_number,
-                    oxy:    self.clone(),
-                    local:  false,
-                };
-                let stream2 = Rc::new(stream.clone());
-                stream.stream.set_notify(stream2);
-                self.remote_streams.borrow_mut().insert(message_number, stream);
-            }
-            RemoteBind { addr } => {
-                assert!(perspective() == Bob);
-                let bind = TcpListener::bind(&addr.parse().unwrap()).unwrap();
-                let proxy = BindNotificationProxy {
-                    oxy:   self.clone(),
-                    token: Rc::new(RefCell::new(message_number)),
-                };
-                let proxy = Rc::new(proxy);
-                let token = transportation::insert_listener(proxy.clone());
-                transportation::borrow_poll(|poll| {
-                    poll.register(&bind, Token(token), Ready::readable(), PollOpt::level()).unwrap();
-                });
-                let bind = PortBind {
-                    listener:    bind,
-                    local_spec:  addr,
-                    remote_spec: "".to_string(),
-                };
-                self.port_binds.borrow_mut().insert(message_number, bind);
-            }
-            RemoteStreamData { reference, data } => {
-                self.remote_streams.borrow_mut().get_mut(&reference).unwrap().stream.put(&data[..]);
-            }
-            LocalStreamData { reference, data } => {
-                self.local_streams.borrow_mut().get_mut(&reference).unwrap().stream.put(&data[..]);
-            }
-            #[cfg(unix)]
-            TunnelRequest { tap, name } => {
-                self.bob_only();
-                let mode = if tap { TunTapType::Tap } else { TunTapType::Tun };
-                let tuntap = TunTap::create(mode, &name, message_number, self.clone());
-                self.tuntaps.borrow_mut().insert(message_number, tuntap);
-            }
-            #[cfg(unix)]
-            TunnelData { reference, data } => {
-                let borrow = self.tuntaps.borrow_mut();
-                borrow.get(&reference).unwrap().send(&data);
-            }
-            _ => (),
-        }
-    }
-
     #[cfg(unix)]
     pub fn notify_tuntap(&self, reference_number: u64) {
         let borrow = self.tuntaps.borrow_mut();
@@ -379,7 +173,7 @@ impl Oxy {
         let remote_addr = self.port_binds.borrow_mut().get_mut(&token).unwrap().remote_spec.clone();
         let local_addr = self.port_binds.borrow_mut().get_mut(&token).unwrap().local_spec.clone();
         debug!("Accepting a connection for local bind {}", local_addr);
-        let stream_token = match perspective() {
+        let stream_token = match self.perspective() {
             Alice => self.send(RemoteOpen { addr: remote_addr }),
             Bob => self.send(BindConnectionAccepted { reference: token }),
         };
@@ -485,25 +279,43 @@ impl Oxy {
         };
         let mut key = self.kex_data.borrow_mut().keymaterial.as_ref().unwrap().to_vec();
         key.extend(keys::static_key());
-        let et = EncryptedTransport::create(bt, arg::perspective(), &key);
+        let et = EncryptedTransport::create(bt, self.perspective(), &key);
         let pt = ProtocolTransport::create(et);
-        pt.set_notify(Rc::new(self.clone()));
+        let proxy = self.clone();
+        pt.set_notify(Rc::new(move || proxy.notify_main_transport()));
         *self.underlying_transport.borrow_mut() = Some(pt);
-        self.notify();
+        self.notify_main_transport();
         self.do_post_auth();
     }
 
+    #[cfg(unix)]
     fn register_signal_handler(&self) {
-        let proxy = SignalNotificationProxy { oxy: self.clone() };
-        transportation::set_signal_handler(Rc::new(proxy));
+        let proxy = self.clone();
+        transportation::set_signal_handler(Rc::new(move || proxy.notify_signal()));
     }
 
+    #[cfg(unix)]
     fn notify_signal(&self) {
         match transportation::get_signal_name().as_str() {
             "SIGWINCH" => {
-                if perspective() == Alice && self.ui.borrow().is_some() {
+                if self.perspective() == Alice && self.ui.borrow().is_some() {
                     let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
                     self.send(PtySizeAdvertisement { w, h });
+                }
+            }
+            "SIGCHLD" => {
+                info!("Received SIGCHLD");
+                if self.pty.borrow().is_some() {
+                    let ptypid = self.pty.borrow().as_ref().unwrap().child_pid;
+                    let flags = ::nix::sys::wait::WaitPidFlag::WNOHANG;
+                    let waitresult = ::nix::sys::wait::waitpid(ptypid, Some(flags));
+                    use nix::sys::wait::WaitStatus::Exited;
+                    match waitresult {
+                        Ok(Exited(_pid, status)) => {
+                            self.send(PtyExited { status });
+                        }
+                        _ => (),
+                    };
                 }
             }
             _ => (),
@@ -515,16 +327,17 @@ impl Oxy {
             if *self.is_copy_source.borrow_mut() {
                 let filename = arg::matches().value_of("source").unwrap();
                 let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-                let cmd = ["download", &filename, "unused"].to_vec();
+                let cmd = ["download", &filename, "/dev/null"].to_vec();
                 let cmd = cmd.iter().map(|x| x.to_string()).collect();
                 self.handle_metacommand(cmd);
             }
-            let proxy = TransferNotificationProxy { oxy: self.clone() };
+            let proxy = self.clone();
+            let proxy = move || proxy.notify_transfer();
             self.copy_peer.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
             self.notify_transfer();
             return;
         }
-        if perspective() == Alice {
+        if self.perspective() == Alice {
             self.run_batched_metacommands();
             #[cfg(unix)]
             {
@@ -534,8 +347,10 @@ impl Oxy {
             }
             self.create_ui();
         }
+        #[cfg(unix)]
         self.register_signal_handler();
-        set_timeout(Rc::new(KeepaliveProxy { oxy: self.clone() }), Duration::from_secs(60));
+        let proxy = self.clone();
+        set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
     }
 
     fn run_batched_metacommands(&self) {
@@ -570,6 +385,7 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                #[cfg(unix)]
                 ::copy::draw_progress_bar((data.len() - 8) as u64);
             } else {
                 assert!(
@@ -585,7 +401,9 @@ impl Oxy {
                     data: data[8..].to_vec(),
                     reference,
                 });
+                #[cfg(unix)]
                 ::copy::pop_file_size();
+                #[cfg(unix)]
                 ::copy::draw_progress_bar((data.len() - 8) as u64);
             }
         }
@@ -595,14 +413,11 @@ impl Oxy {
         trace!("Keepalive!");
         if self.last_message_seen.borrow().elapsed() > Duration::from_secs(180) {
             trace!("Exiting due to lack of keepalives");
-            if let Some(x) = self.ui.borrow_mut().as_ref() {
-                x.cooked()
-            };
-            ::ui::cleanup();
-            ::std::process::exit(2);
+            self.exit(2);
         }
         self.send(Ping {});
-        set_timeout(Rc::new(KeepaliveProxy { oxy: self.clone() }), Duration::from_secs(60));
+        let proxy = self.clone();
+        set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
     }
 
     fn notify_socks_bind(&self, token: u64) {
@@ -671,20 +486,22 @@ impl Oxy {
             }
         }
     }
-}
 
-impl Notifiable for Oxy {
-    fn notify(&self) {
+    fn exit(&self, status: i32) -> ! {
+        #[cfg(unix)]
+        {
+            if let Some(x) = self.ui.borrow_mut().as_ref() {
+                x.cooked()
+            };
+            ::ui::cleanup();
+        }
+        ::std::process::exit(status);
+    }
+
+    fn notify_main_transport(&self) {
         trace!("Core notified");
         if self.underlying_transport.borrow().as_ref().unwrap().is_closed() {
-            #[cfg(unix)]
-            {
-                if let Some(x) = self.ui.borrow_mut().as_ref() {
-                    x.cooked()
-                };
-                ::ui::cleanup();
-            }
-            ::std::process::exit(0);
+            self.exit(0);
         }
         if self.copy_peer.borrow_mut().is_some() {
             if !*self.is_copy_source.borrow_mut() {
@@ -712,38 +529,6 @@ impl Notifiable for Oxy {
         }
         self.service_transfers();
         self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR
-    }
-}
-
-struct UiNotificationProxy {
-    oxy: Oxy,
-}
-
-impl Notifiable for UiNotificationProxy {
-    fn notify(&self) {
-        self.oxy.notify_ui();
-    }
-}
-
-struct PtyNotificationProxy {
-    oxy: Oxy,
-}
-
-impl Notifiable for PtyNotificationProxy {
-    fn notify(&self) {
-        #[cfg(unix)]
-        self.oxy.notify_pty();
-    }
-}
-
-struct BindNotificationProxy {
-    oxy:   Oxy,
-    token: Rc<RefCell<u64>>,
-}
-
-impl Notifiable for BindNotificationProxy {
-    fn notify(&self) {
-        self.oxy.notify_bind(*self.token.borrow_mut());
     }
 }
 
@@ -786,16 +571,6 @@ impl Notifiable for PortStream {
     }
 }
 
-struct NakedNotificationProxy {
-    oxy: Oxy,
-}
-
-impl Notifiable for NakedNotificationProxy {
-    fn notify(&self) {
-        self.oxy.notify_naked();
-    }
-}
-
 struct SocksConnectionNotificationProxy {
     oxy:   Oxy,
     bt:    BufferedTransport,
@@ -812,34 +587,4 @@ impl Notifiable for SocksConnectionNotificationProxy {
 enum SocksState {
     Initial,
     Authed,
-}
-
-struct TransferNotificationProxy {
-    oxy: Oxy,
-}
-
-impl Notifiable for TransferNotificationProxy {
-    fn notify(&self) {
-        self.oxy.notify_transfer();
-    }
-}
-
-struct SignalNotificationProxy {
-    oxy: Oxy,
-}
-
-impl Notifiable for SignalNotificationProxy {
-    fn notify(&self) {
-        self.oxy.notify_signal();
-    }
-}
-
-struct KeepaliveProxy {
-    oxy: Oxy,
-}
-
-impl Notifiable for KeepaliveProxy {
-    fn notify(&self) {
-        self.oxy.notify_keepalive();
-    }
 }

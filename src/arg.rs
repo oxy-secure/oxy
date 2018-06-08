@@ -49,13 +49,25 @@ fn create_matches() -> ArgMatches<'static> {
         .long("metacommand")
         .takes_value(true)
         .multiple(true)
+        .number_of_values(1)
         .help("A command to run after the connection is established. The same commands from the F10 prompt.");
     let identity = Arg::with_name("identity")
         .short("i")
         .long("identity")
         .takes_value(true)
         .env("OXY_IDENTITY");
-    let client_args = vec![metacommand.clone(), identity.clone().required(true)];
+    let command = Arg::with_name("command").index(2).default_value("bash");
+    let l_portfwd = Arg::with_name("l_portfwd")
+        .multiple(true)
+        .short("L")
+        .number_of_values(1)
+        .takes_value(true);
+    let r_portfwd = Arg::with_name("r_portfwd")
+        .multiple(true)
+        .short("R")
+        .number_of_values(1)
+        .takes_value(true);
+    let client_args = vec![metacommand.clone(), identity.clone().required(true), l_portfwd, r_portfwd, command];
     let server_args = vec![identity.clone()];
     App::new("oxy")
         .version(crate_version!())

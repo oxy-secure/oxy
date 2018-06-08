@@ -17,16 +17,19 @@ byteorder = "1.2"
 log = "0.4"
 env_logger = "0.5"
 shlex = "0.1"
-transportation = { git = "https://github.com/oxy-secure/transportation/", features = ["encrypt", "protocol"] }
+transportation = { version = "1.0.0", features = ["encrypt", "protocol"] }
 lazy_static = "1.0"
 num = "0.1"
 rustyline = "1.0"
 rmp = "0.8"
 rmp-serde = "0.13"
-nix = "0.10.0"
+nix = "0.11"
 libc = "0.2.40"
 data-encoding = "2.1.1"
 textwrap = { version = "0.10", features = ["term_size", "hyphenation"] }
+
+[dev-dependencies]
+parking_lot = { version = "0.5.5", features = ["nightly"] }
 
 [target.'cfg(unix)'.dependencies]
 termion = "1.5.1"
