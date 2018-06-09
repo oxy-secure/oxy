@@ -89,3 +89,37 @@ fn portfwd(spec: &str) {
     assert_eq!(&read_buf, b"abcdef");
     remove_file("/tmp/oxy-test-portfwd").unwrap();
 }
+
+#[test]
+fn catpty() {
+    let _guard = SERIAL_TESTS.lock();
+    let identity = mk_identity();
+    let mut server = Command::new(&binpath()).args(&["server", &identity]).spawn().unwrap();
+    hold();
+    let meta = r#"pty "stty raw; echo -n -e '\x00\x10\x0a\xff\x0d\x41'""#;
+    let output = Command::new(&binpath())
+        .args(&["client", "127.0.0.1:2600", &identity, "-m", meta])
+        .output()
+        .unwrap();
+    server.kill().unwrap();
+    assert_eq!(&output.stdout[..], b"\x00\x10\n\xff\rA");
+}
+
+#[test]
+fn catpty_rev() {
+    let _guard = SERIAL_TESTS.lock();
+    let identity = mk_identity();
+    let meta = r#"pty "stty raw; echo -n -e '\x00\x10\x0a\xff\x0d\x42'""#;
+    let client = Command::new(&binpath())
+        .args(&["reverse-client", "127.0.0.1:2600", &identity, "-m", meta])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    hold();
+    let _server = Command::new(&binpath())
+        .args(&["reverse-server", "127.0.0.1:2600", &identity])
+        .spawn()
+        .unwrap();
+    let output = client.wait_with_output().unwrap();
+    assert_eq!(&output.stdout[..], b"\x00\x10\n\xff\rB");
+}

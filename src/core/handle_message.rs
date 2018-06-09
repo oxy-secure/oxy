@@ -27,7 +27,7 @@ impl Oxy {
                 self.send(Pong {});
             }
             Pong {} => {
-                *self.last_message_seen.borrow_mut() = Instant::now();
+                *self.internal.last_message_seen.borrow_mut() = Instant::now();
             }
             BasicCommand { command } => {
                 self.bob_only();
@@ -53,7 +53,7 @@ impl Oxy {
                 let pty = Pty::forkpty(&command);
                 let proxy = self.clone();
                 pty.underlying.set_notify(Rc::new(move || proxy.notify_pty()));
-                *self.pty.borrow_mut() = Some(pty);
+                *self.internal.pty.borrow_mut() = Some(pty);
                 self.send(PtyRequestResponse { granted: true });
                 trace!("Successfully allocated PTY");
             }
@@ -64,33 +64,33 @@ impl Oxy {
                     warn!("PTY open failed");
                     return;
                 }
-                if self.ui.borrow().is_some() {
-                    let (w, h) = self.ui.borrow_mut().as_mut().unwrap().pty_size();
+                if self.internal.ui.borrow().is_some() {
+                    let (w, h) = self.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
                     self.send(PtySizeAdvertisement { w, h });
                 }
             }
             #[cfg(unix)]
             PtySizeAdvertisement { w, h } => {
                 self.bob_only();
-                self.pty.borrow_mut().as_mut().unwrap().set_size(w, h);
+                self.internal.pty.borrow_mut().as_mut().unwrap().set_size(w, h);
             }
             #[cfg(unix)]
             PtyInput { data } => {
                 self.bob_only();
-                if self.pty.borrow_mut().is_none() {
+                if self.internal.pty.borrow_mut().is_none() {
                     self.send(Reject {
                         message_number,
                         note: "No PTY exists".to_string(),
                     });
                     return;
                 }
-                self.pty.borrow_mut().as_mut().unwrap().underlying.put(&data[..]);
+                self.internal.pty.borrow_mut().as_mut().unwrap().underlying.put(&data[..]);
             }
             #[cfg(unix)]
             PtyOutput { data } => {
                 self.alice_only();
-                if self.ui.borrow().is_some() {
-                    self.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
+                if self.internal.ui.borrow().is_some() {
+                    self.internal.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
                 } else {
                     let stdout = ::std::io::stdout();
                     let mut lock = stdout.lock();
@@ -104,7 +104,12 @@ impl Oxy {
                     info!("stdout:\n-----\n{}\n-----", stdout);
                 }
             }
-            DownloadRequest { path, .. } => {
+            DownloadRequest {
+                path,
+                offset_start,
+                offset_end,
+            } => {
+                use std::io::{Seek, SeekFrom};
                 self.bob_only();
                 let file = File::open(path);
                 if file.is_err() {
@@ -114,7 +119,7 @@ impl Oxy {
                     });
                     return;
                 }
-                let file = file.unwrap();
+                let mut file = file.unwrap();
                 let metadata = file.metadata();
                 if metadata.is_err() {
                     self.send(Reject {
@@ -128,7 +133,17 @@ impl Oxy {
                     reference: message_number,
                     size:      metadata.len(),
                 });
-                self.transfers_out.borrow_mut().push((message_number, file));
+                if offset_start.is_some() {
+                    file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
+                }
+                let offset_end = offset_end.unwrap_or(metadata.len());
+                use super::TransferOut;
+                self.internal.transfers_out.borrow_mut().push(TransferOut {
+                    reference: message_number,
+                    file,
+                    current_position: offset_start.unwrap_or(0),
+                    cutoff_position: offset_end,
+                });
             }
             UploadRequest { path, filepart, .. } => {
                 self.bob_only();
@@ -137,12 +152,12 @@ impl Oxy {
                         let mut buf: PathBuf = path.into();
                         buf.push(filepart);
                         let file = File::create(buf).unwrap();
-                        self.transfers_in.borrow_mut().insert(message_number, file);
+                        self.internal.transfers_in.borrow_mut().insert(message_number, file);
                         return;
                     }
                 }
                 let file = File::create(path).unwrap();
-                self.transfers_in.borrow_mut().insert(message_number, file);
+                self.internal.transfers_in.borrow_mut().insert(message_number, file);
             }
             FileSize { reference: _, size } => {
                 #[cfg(unix)]
@@ -151,14 +166,14 @@ impl Oxy {
             FileData { reference, data } => {
                 if data.is_empty() {
                     debug!("File transfer completed");
-                    self.transfers_in.borrow_mut().remove(&reference);
-                    if self.copy_peer.borrow_mut().is_some() {
-                        *self.fetch_file_ticker.borrow_mut() += 1;
-                        if *self.fetch_file_ticker.borrow_mut() < arg::matches().occurrences_of("source") {
+                    self.internal.transfers_in.borrow_mut().remove(&reference);
+                    if self.internal.copy_peer.borrow_mut().is_some() {
+                        *self.internal.fetch_file_ticker.borrow_mut() += 1;
+                        if *self.internal.fetch_file_ticker.borrow_mut() < arg::matches().occurrences_of("source") {
                             let filename = arg::matches()
                                 .values_of("source")
                                 .unwrap()
-                                .nth(*self.fetch_file_ticker.borrow_mut() as usize)
+                                .nth(*self.internal.fetch_file_ticker.borrow_mut() as usize)
                                 .unwrap();
                             let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
                             let cmd = ["download", &filename, "unused"].to_vec();
@@ -167,26 +182,39 @@ impl Oxy {
                         } else {
                             let mut message = [0u8; 8];
                             byteorder::BE::write_u64(&mut message, ::std::u64::MAX);
-                            self.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
+                            self.internal.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
                             trace!("Source is done.");
                         }
                     }
                     return;
                 }
-                if self.copy_peer.borrow_mut().is_none() {
-                    self.transfers_in.borrow_mut().get_mut(&reference).unwrap().write_all(&data[..]).unwrap();
+                if self.internal.copy_peer.borrow_mut().is_none() {
+                    self.internal
+                        .transfers_in
+                        .borrow_mut()
+                        .get_mut(&reference)
+                        .unwrap()
+                        .write_all(&data[..])
+                        .unwrap();
                 } else {
-                    let ticker = *self.fetch_file_ticker.borrow_mut();
+                    let ticker = *self.internal.fetch_file_ticker.borrow_mut();
                     let mut message: Vec<u8> = Vec::new();
                     message.resize(8, 0);
                     byteorder::BE::write_u64(&mut message[..8], ticker);
                     message.extend(&data);
-                    self.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
+                    self.internal.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
                 }
             }
             BindConnectionAccepted { reference } => {
                 assert!(perspective() == Alice);
-                let addr = self.remote_bind_destinations.borrow_mut().get(&reference).unwrap().parse().unwrap();
+                let addr = self
+                    .internal
+                    .remote_bind_destinations
+                    .borrow_mut()
+                    .get(&reference)
+                    .unwrap()
+                    .parse()
+                    .unwrap();
                 let stream = TcpStream::connect(&addr).unwrap();
                 let bt = BufferedTransport::from(stream);
                 let stream = PortStream {
@@ -197,7 +225,7 @@ impl Oxy {
                 };
                 let stream2 = Rc::new(stream.clone());
                 stream.stream.set_notify(stream2);
-                self.remote_streams.borrow_mut().insert(message_number, stream);
+                self.internal.remote_streams.borrow_mut().insert(message_number, stream);
             }
             RemoteOpen { addr } => {
                 assert!(perspective() == Bob);
@@ -213,7 +241,7 @@ impl Oxy {
                 };
                 let stream2 = Rc::new(stream.clone());
                 stream.stream.set_notify(stream2);
-                self.remote_streams.borrow_mut().insert(message_number, stream);
+                self.internal.remote_streams.borrow_mut().insert(message_number, stream);
             }
             RemoteBind { addr } => {
                 assert!(perspective() == Bob);
@@ -229,24 +257,36 @@ impl Oxy {
                     local_spec:  addr,
                     remote_spec: "".to_string(),
                 };
-                self.port_binds.borrow_mut().insert(message_number, bind);
+                self.internal.port_binds.borrow_mut().insert(message_number, bind);
             }
             RemoteStreamData { reference, data } => {
-                self.remote_streams.borrow_mut().get_mut(&reference).unwrap().stream.put(&data[..]);
+                self.internal
+                    .remote_streams
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .unwrap()
+                    .stream
+                    .put(&data[..]);
             }
             LocalStreamData { reference, data } => {
-                self.local_streams.borrow_mut().get_mut(&reference).unwrap().stream.put(&data[..]);
+                self.internal
+                    .local_streams
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .unwrap()
+                    .stream
+                    .put(&data[..]);
             }
             #[cfg(unix)]
             TunnelRequest { tap, name } => {
                 self.bob_only();
                 let mode = if tap { TunTapType::Tap } else { TunTapType::Tun };
                 let tuntap = TunTap::create(mode, &name, message_number, self.clone());
-                self.tuntaps.borrow_mut().insert(message_number, tuntap);
+                self.internal.tuntaps.borrow_mut().insert(message_number, tuntap);
             }
             #[cfg(unix)]
             TunnelData { reference, data } => {
-                let borrow = self.tuntaps.borrow_mut();
+                let borrow = self.internal.tuntaps.borrow_mut();
                 borrow.get(&reference).unwrap().send(&data);
             }
             StatRequest { path } => {
@@ -301,6 +341,68 @@ impl Oxy {
                 self.alice_only();
                 debug!("Remote PTY process exited with status {}", status);
                 self.exit(0);
+            }
+            FileHashRequest {
+                path,
+                offset_start,
+                offset_end,
+                hash_algorithm,
+            } => {
+                use std::io::{Read, Seek, SeekFrom};
+                use transportation::ring::digest::{Context, SHA1, SHA256, SHA512};
+                let algorithm = match hash_algorithm {
+                    0 => unimplemented!("MD5"),
+                    1 => &SHA1,
+                    2 => &SHA256,
+                    3 => &SHA512,
+                    _ => panic!(),
+                };
+                let file = File::open(path);
+                if file.is_err() {
+                    self.send(Reject {
+                        message_number,
+                        note: "Failed to open file".to_string(),
+                    });
+                    return;
+                }
+                let mut file = file.unwrap();
+                let mut context = Context::new(algorithm);
+                file.seek(SeekFrom::Start(offset_start.unwrap_or(0))).unwrap();
+                let mut ticker = offset_start.unwrap_or(0);
+                let mut data = [0u8; 4096];
+                let offset_end = offset_end.unwrap_or(file.metadata().unwrap().len());
+                loop {
+                    let result = file.read(&mut data[..]);
+                    if result.is_err() {
+                        self.send(Reject {
+                            message_number,
+                            note: "Error reading file".to_string(),
+                        });
+                        return;
+                    }
+                    let result = result.unwrap() as u64;
+                    if result == 0 {
+                        self.send(Reject {
+                            message_number,
+                            note: "Reached end-of-file?".to_string(),
+                        });
+                        return;
+                    }
+                    if ticker + result >= offset_end {
+                        let to_take = (offset_end - ticker) as usize;
+                        context.update(&data[..to_take]);
+                        break;
+                    }
+                    context.update(&data[..(result as usize)]);
+                    ticker += result;
+                }
+                let digest = context.finish();
+                let digest: Vec<u8> = digest.as_ref().to_vec();
+                info!("File digest: {}", ::data_encoding::HEXUPPER.encode(&digest));
+                self.send(FileHashData {
+                    reference: message_number,
+                    digest,
+                });
             }
             _ => (),
         }

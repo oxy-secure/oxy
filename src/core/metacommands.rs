@@ -22,7 +22,9 @@ fn create_app() -> App<'static, 'static> {
         SubCommand::with_name("download")
             .about("Download a file")
             .arg(Arg::with_name("remote path").help("Remote file path to download from.").index(1))
-            .arg(Arg::with_name("local path").help("Local file path to download to.").index(2)),
+            .arg(Arg::with_name("local path").help("Local file path to download to.").index(2))
+            .arg(Arg::with_name("offset start").long("start").takes_value(true))
+            .arg(Arg::with_name("offset end").long("end").takes_value(true)),
         SubCommand::with_name("upload")
             .about("Upload a file")
             .arg(Arg::with_name("local path").index(1))
@@ -67,6 +69,13 @@ fn create_app() -> App<'static, 'static> {
             )
             .arg(Arg::with_name("command").index(1).required(true)),
         SubCommand::with_name("exit").about("Exits the Oxy client."),
+        SubCommand::with_name("f10").about("Send F10 to the remote"),
+        SubCommand::with_name("f12").about("Send F12 to the remote"),
+        SubCommand::with_name("hash")
+            .arg(Arg::with_name("path").index(1).required(true))
+            .arg(Arg::with_name("offset start").long("start").takes_value(true))
+            .arg(Arg::with_name("offset end").long("end").takes_value(true))
+            .about("Request the file hash of a file"),
     ];
     let subcommands: Vec<App<'static, 'static>> = subcommands
         .into_iter()
@@ -111,11 +120,11 @@ impl Oxy {
                         let file = file.unwrap();
                         let id = self.send(DownloadRequest {
                             path:         matches.value_of("remote path").unwrap().to_string(),
-                            offset_start: None,
-                            offset_end:   None,
+                            offset_start: matches.value_of("offset start").map(|x| x.parse().unwrap()),
+                            offset_end:   matches.value_of("offset end").map(|x| x.parse().unwrap()),
                         });
                         debug!("Download started");
-                        self.transfers_in.borrow_mut().insert(id, file);
+                        self.internal.transfers_in.borrow_mut().insert(id, file);
                     }
                     "upload" => {
                         let buf: PathBuf = matches.value_of("local path").unwrap().into();
@@ -132,8 +141,14 @@ impl Oxy {
                             offset_start: None,
                             offset_end:   None,
                         });
+                        let len = file.metadata().unwrap().len();
                         debug!("Upload started");
-                        self.transfers_out.borrow_mut().push((id, file));
+                        self.internal.transfers_out.borrow_mut().push(super::TransferOut {
+                            reference: id,
+                            file,
+                            current_position: 0,
+                            cutoff_position: len,
+                        });
                     }
                     "L" => {
                         let remote_spec = matches.value_of("remote spec").unwrap().to_string();
@@ -154,13 +169,14 @@ impl Oxy {
                             local_spec,
                             remote_spec,
                         };
-                        self.port_binds.borrow_mut().insert(token_sized, bind);
+                        self.internal.port_binds.borrow_mut().insert(token_sized, bind);
                     }
                     "R" => {
                         let bind_id = self.send(RemoteBind {
                             addr: matches.value_of("remote spec").unwrap().to_string(),
                         });
-                        self.remote_bind_destinations
+                        self.internal
+                            .remote_bind_destinations
                             .borrow_mut()
                             .insert(bind_id, matches.value_of("local spec").unwrap().to_string());
                     }
@@ -171,7 +187,7 @@ impl Oxy {
                             name: matches.value_of("remote tun").unwrap().to_string(),
                         });
                         let tuntap = TunTap::create(TunTapType::Tun, matches.value_of("local tun").unwrap(), reference_number, self.clone());
-                        self.tuntaps.borrow_mut().insert(reference_number, tuntap);
+                        self.internal.tuntaps.borrow_mut().insert(reference_number, tuntap);
                     }
                     #[cfg(unix)]
                     "tap" => {
@@ -180,7 +196,7 @@ impl Oxy {
                             name: matches.value_of("remote tap").unwrap().to_string(),
                         });
                         let tuntap = TunTap::create(TunTapType::Tap, matches.value_of("local tap").unwrap(), reference_number, self.clone());
-                        self.tuntaps.borrow_mut().insert(reference_number, tuntap);
+                        self.internal.tuntaps.borrow_mut().insert(reference_number, tuntap);
                     }
                     "socks" => {
                         let local_spec = matches.value_of("bind spec").unwrap();
@@ -197,10 +213,26 @@ impl Oxy {
                             poll.register(&bind, Token(token), Ready::readable(), PollOpt::level()).unwrap();
                         });
                         let socks = SocksBind { listener: bind };
-                        self.socks_binds.borrow_mut().insert(token_sized, socks);
+                        self.internal.socks_binds.borrow_mut().insert(token_sized, socks);
                     }
                     "exit" => {
                         ::std::process::exit(0);
+                    }
+                    "f10" => {
+                        let f10 = [27, 91, 50, 49, 126];
+                        self.send(PtyInput { data: f10.to_vec() });
+                    }
+                    "f12" => {
+                        let f12 = [27, 91, 50, 52, 126];
+                        self.send(PtyInput { data: f12.to_vec() });
+                    }
+                    "hash" => {
+                        self.send(FileHashRequest {
+                            path:           matches.value_of("path").unwrap().to_string(),
+                            offset_start:   matches.value_of("offset start").map(|x| x.parse().unwrap()),
+                            offset_end:     matches.value_of("offset end").map(|x| x.parse().unwrap()),
+                            hash_algorithm: 3,
+                        });
                     }
                     _ => (),
                 }

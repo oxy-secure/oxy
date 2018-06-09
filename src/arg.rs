@@ -6,44 +6,10 @@ use std::{
 use transportation::EncryptionPerspective;
 
 lazy_static! {
-    static ref CLEAN_ARGS: Vec<String> = clean_args();
     pub static ref MATCHES: ArgMatches<'static> = create_matches();
 }
 
-const REAL_SUBCOMMANDS: [&str; 9] = [
-    "client",
-    "reexec",
-    "server",
-    "help",
-    "serve-one",
-    "reverse-server",
-    "reverse-client",
-    "guide",
-    "copy",
-];
-
-fn get_first_positional_argument() -> Option<String> {
-    let matches = App::new("fake")
-        .setting(AppSettings::DisableVersion)
-        .arg(Arg::with_name("fakearg").index(1))
-        .get_matches_safe();
-    if matches.is_err() {
-        return None;
-    }
-    matches.unwrap().value_of("fakearg").map(|x| x.to_string())
-}
-
-fn clean_args() -> Vec<String> {
-    let arg1 = get_first_positional_argument();
-    let mut result = ::std::env::args().collect();
-    if arg1.is_none() || REAL_SUBCOMMANDS.contains(&arg1.unwrap().as_str()) {
-        return result;
-    }
-    result.insert(1, "client".to_string());
-    result
-}
-
-fn create_matches() -> ArgMatches<'static> {
+pub fn create_app() -> App<'static, 'static> {
     let metacommand = Arg::with_name("metacommand")
         .short("m")
         .long("metacommand")
@@ -116,7 +82,10 @@ fn create_matches() -> ArgMatches<'static> {
                 .arg(Arg::with_name("source").index(1).multiple(true).required(true))
                 .arg(Arg::with_name("dest").index(2).required(true)),
         )
-        .get_matches_from(&*CLEAN_ARGS)
+}
+
+fn create_matches() -> ArgMatches<'static> {
+    create_app().get_matches()
 }
 
 pub fn batched_metacommands() -> Vec<String> {
