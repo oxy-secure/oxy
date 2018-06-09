@@ -395,7 +395,12 @@ impl Oxy {
                 let filepart: PathBuf = arg::source_path(filenumber).into();
                 let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
                 let path = arg::dest_path();
-                let reference = self.send(UploadRequest { path, filepart });
+                let reference = self.send(UploadRequest {
+                    path,
+                    filepart,
+                    offset_start: None,
+                    offset_end: None,
+                });
                 *self.file_transfer_reference.borrow_mut() = Some(reference);
                 self.send(FileData {
                     data: data[8..].to_vec(),

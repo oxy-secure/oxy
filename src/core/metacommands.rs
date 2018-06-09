@@ -110,7 +110,9 @@ impl Oxy {
                         }
                         let file = file.unwrap();
                         let id = self.send(DownloadRequest {
-                            path: matches.value_of("remote path").unwrap().to_string(),
+                            path:         matches.value_of("remote path").unwrap().to_string(),
+                            offset_start: None,
+                            offset_end:   None,
                         });
                         debug!("Download started");
                         self.transfers_in.borrow_mut().insert(id, file);
@@ -125,8 +127,10 @@ impl Oxy {
                         }
                         let file = file.unwrap();
                         let id = self.send(UploadRequest {
-                            path:     matches.value_of("remote path").unwrap().to_string(),
-                            filepart: buf.file_name().unwrap().to_string_lossy().into_owned(),
+                            path:         matches.value_of("remote path").unwrap().to_string(),
+                            filepart:     buf.file_name().unwrap().to_string_lossy().into_owned(),
+                            offset_start: None,
+                            offset_end:   None,
                         });
                         debug!("Upload started");
                         self.transfers_out.borrow_mut().push((id, file));

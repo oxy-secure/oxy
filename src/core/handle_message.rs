@@ -104,7 +104,7 @@ impl Oxy {
                     info!("stdout:\n-----\n{}\n-----", stdout);
                 }
             }
-            DownloadRequest { path } => {
+            DownloadRequest { path, .. } => {
                 self.bob_only();
                 let file = File::open(path);
                 if file.is_err() {
@@ -130,7 +130,7 @@ impl Oxy {
                 });
                 self.transfers_out.borrow_mut().push((message_number, file));
             }
-            UploadRequest { path, filepart } => {
+            UploadRequest { path, filepart, .. } => {
                 self.bob_only();
                 if let Ok(meta) = metadata(&path) {
                     if meta.is_dir() {

@@ -31,14 +31,11 @@ pub(super) enum NakedState {
 }
 
 impl Oxy {
-    fn send_naked(&self, message: &[u8]) {
-        self.naked_transport.borrow_mut().as_mut().unwrap().send(message);
-    }
-
     pub(super) fn advertise_client_key(&self) {
         let key = keys::asymmetric_key();
-        let pubkey = key.public_key_bytes();
-        self.send_naked(pubkey);
+        let mut pubkey: Vec<u8> = key.public_key_bytes().to_vec();
+        pubkey.insert(0, 0);
+        self.send_naked(&pubkey);
         let evidence = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let mut evidence_buf = [0u8; 8].to_vec();
         byteorder::BE::write_u64(&mut evidence_buf, evidence);
@@ -52,6 +49,10 @@ impl Oxy {
         *self.naked_state.borrow_mut() = NakedState::WaitingForServerKey;
     }
 
+    fn send_naked(&self, message: &[u8]) {
+        self.naked_transport.borrow_mut().as_mut().unwrap().send(message);
+    }
+
     fn recv_naked(&self) -> Option<Vec<u8>> {
         self.naked_transport.borrow().as_ref().unwrap().recv()
     }
@@ -62,7 +63,8 @@ impl Oxy {
             NakedState::Reject => panic!(),
             NakedState::WaitingForClientKey => {
                 self.bob_only();
-                if let Some(msg) = self.recv_naked() {
+                if let Some(mut msg) = self.recv_naked() {
+                    let _version_indicator = msg.remove(0);
                     if !keys::validate_peer_public_key(&msg) {
                         panic!("Incorrect client key");
                     }
@@ -95,7 +97,9 @@ impl Oxy {
                     ::std::mem::drop(kex_data);
                     let ephemeral = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
                     let server_key = keys::asymmetric_key();
-                    self.send_naked(server_key.public_key_bytes());
+                    let mut public_key_message: Vec<u8> = server_key.public_key_bytes().to_vec();
+                    public_key_message.insert(0, 0);
+                    self.send_naked(&public_key_message);
                     let mut buf = Vec::new();
                     buf.resize(ephemeral.public_key_len() + 8, 0);
                     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -117,7 +121,8 @@ impl Oxy {
             }
             NakedState::WaitingForServerKey => {
                 self.alice_only();
-                if let Some(msg) = self.recv_naked() {
+                if let Some(mut msg) = self.recv_naked() {
+                    let _version_indicator = msg.remove(0);
                     debug!("Host key: {}", BASE32_NOPAD.encode(&msg));
                     if !keys::validate_peer_public_key(&msg) {
                         panic!("Invalid host key!");
