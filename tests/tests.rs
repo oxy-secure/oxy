@@ -11,7 +11,7 @@ use transportation::ring::rand::SecureRandom;
 static SERIAL_TESTS: Mutex<()> = Mutex::new(());
 
 fn mk_identity() -> String {
-    let mut identity = [0u8; 24];
+    let mut identity = [0u8; 36];
     transportation::RNG.fill(&mut identity).unwrap();
     let identity = data_encoding::BASE32_NOPAD.encode(&identity);
     format!("--identity={}", identity)
