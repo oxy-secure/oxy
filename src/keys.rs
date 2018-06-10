@@ -16,6 +16,9 @@ fn identity_bytes_initializer() -> Vec<u8> {
         warn!("No identity provided.");
         return Vec::new();
     }
+    if arg::mode() == "guide" {
+        return Vec::new();
+    }
     if perspective() == Alice {
         error!("No identity provided. If the server doesn't know who you are it won't talk to you, and how will it know who you are if you don't know who you are?");
         ::std::process::exit(1);
