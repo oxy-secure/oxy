@@ -18,7 +18,7 @@ use transportation::{
 use tuntap::{TunTap, TunTapType};
 
 impl Oxy {
-    pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) {
+    pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) -> Result<(), String> {
         debug!("Recieved message {}", message_number);
         trace!("Received message {}: {:?}", message_number, message);
         match message {
@@ -62,7 +62,7 @@ impl Oxy {
                 self.alice_only();
                 if !granted {
                     warn!("PTY open failed");
-                    return;
+                    return Ok(());
                 }
                 if self.internal.ui.borrow().is_some() {
                     let (w, h) = self.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
@@ -72,19 +72,12 @@ impl Oxy {
             #[cfg(unix)]
             PtySizeAdvertisement { w, h } => {
                 self.bob_only();
-                self.internal.pty.borrow_mut().as_mut().unwrap().set_size(w, h);
+                self.internal.pty.borrow_mut().as_mut().ok_or("No PTY exists")?.set_size(w, h);
             }
             #[cfg(unix)]
             PtyInput { data } => {
                 self.bob_only();
-                if self.internal.pty.borrow_mut().is_none() {
-                    self.send(Reject {
-                        message_number,
-                        note: "No PTY exists".to_string(),
-                    });
-                    return;
-                }
-                self.internal.pty.borrow_mut().as_mut().unwrap().underlying.put(&data[..]);
+                self.internal.pty.borrow_mut().as_mut().ok_or("No PTY exists")?.underlying.put(&data[..]);
             }
             #[cfg(unix)]
             PtyOutput { data } => {
@@ -111,30 +104,14 @@ impl Oxy {
             } => {
                 use std::io::{Seek, SeekFrom};
                 self.bob_only();
-                let file = File::open(path);
-                if file.is_err() {
-                    self.send(Reject {
-                        message_number,
-                        note: "Failed to open file".to_string(),
-                    });
-                    return;
-                }
-                let mut file = file.unwrap();
-                let metadata = file.metadata();
-                if metadata.is_err() {
-                    self.send(Reject {
-                        message_number,
-                        note: "Failed to stat file".to_string(),
-                    });
-                    return;
-                }
-                let metadata = metadata.unwrap();
+                let mut file = File::open(path).map_err(|_| "Failed to open file")?;
+                let metadata = file.metadata().map_err(|_| "Failed to stat file")?;
                 self.send(FileSize {
                     reference: message_number,
                     size:      metadata.len(),
                 });
-                if offset_start.is_some() {
-                    file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
+                if let Some(offset_start) = offset_start {
+                    file.seek(SeekFrom::Start(offset_start)).map_err(|_| "Start-seek failed")?;
                 }
                 let offset_end = offset_end.unwrap_or(metadata.len());
                 use super::TransferOut;
@@ -145,19 +122,46 @@ impl Oxy {
                     cutoff_position: offset_end,
                 });
             }
-            UploadRequest { path, filepart, .. } => {
+            UploadRequest {
+                path,
+                filepart,
+                offset_start,
+            } => {
                 self.bob_only();
+                let mut path: PathBuf = path.into();
                 if let Ok(meta) = metadata(&path) {
                     if meta.is_dir() {
-                        let mut buf: PathBuf = path.into();
-                        buf.push(filepart);
-                        let file = File::create(buf).unwrap();
-                        self.internal.transfers_in.borrow_mut().insert(message_number, file);
-                        return;
+                        path.push(filepart);
                     }
                 }
-                let file = File::create(path).unwrap();
+                let file = if offset_start.is_none() {
+                    File::create(path).map_err(|_| "Create file failed")?
+                } else {
+                    use std::{
+                        fs::OpenOptions, io::{Seek, SeekFrom},
+                    };
+                    let mut file = OpenOptions::new().write(true).truncate(false).open(path).map_err(|_| "Open file failed")?;
+                    file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
+                    file
+                };
                 self.internal.transfers_in.borrow_mut().insert(message_number, file);
+            }
+            FileTruncateRequest { path, len } => {
+                #[cfg(unix)]
+                {
+                    use std::{fs::OpenOptions, os::unix::io::AsRawFd};
+
+                    let file = OpenOptions::new()
+                        .write(true)
+                        .truncate(false)
+                        .open(path)
+                        .map_err(|_| "Failed to open file")?;
+                    let result = ::nix::unistd::ftruncate(file.as_raw_fd(), len as i64);
+                    if result.is_err() {
+                        return Err("Truncate failed".to_string());
+                    }
+                }
+                ();
             }
             FileSize { reference: _, size } => {
                 #[cfg(unix)]
@@ -165,6 +169,7 @@ impl Oxy {
             }
             FileData { reference, data } => {
                 if data.is_empty() {
+                    self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
                     debug!("File transfer completed");
                     self.internal.transfers_in.borrow_mut().remove(&reference);
                     if self.internal.copy_peer.borrow_mut().is_some() {
@@ -186,7 +191,7 @@ impl Oxy {
                             trace!("Source is done.");
                         }
                     }
-                    return;
+                    return Ok(());
                 }
                 if self.internal.copy_peer.borrow_mut().is_none() {
                     self.internal
@@ -215,7 +220,7 @@ impl Oxy {
                     .unwrap()
                     .parse()
                     .unwrap();
-                let stream = TcpStream::connect(&addr).unwrap();
+                let stream = TcpStream::connect(&addr).map_err(|_| "Forward-connection failed")?;
                 let bt = BufferedTransport::from(stream);
                 let stream = PortStream {
                     stream: bt,
@@ -229,9 +234,13 @@ impl Oxy {
             }
             RemoteOpen { addr } => {
                 assert!(perspective() == Bob);
-                let dest = addr.to_socket_addrs().unwrap().next().unwrap();
+                let dest = addr
+                    .to_socket_addrs()
+                    .map_err(|_| "Resolving address failed.")?
+                    .next()
+                    .ok_or("Resolving address failed.")?;
                 debug!("Resolved RemoteOpen destination to {:?}", dest);
-                let stream = TcpStream::connect(&dest).unwrap();
+                let stream = TcpStream::connect(&dest).map_err(|_| "Forward-connection failed")?;
                 let bt = BufferedTransport::from(stream);
                 let stream = PortStream {
                     stream: bt,
@@ -291,15 +300,7 @@ impl Oxy {
             }
             StatRequest { path } => {
                 self.bob_only();
-                let info = symlink_metadata(path);
-                if info.is_err() {
-                    self.send(Reject {
-                        message_number,
-                        note: "stat failed".to_string(),
-                    });
-                    return;
-                }
-                let info = info.unwrap();
+                let info = symlink_metadata(path).map_err(|_| "Failed to stat")?;
                 let message = StatResult {
                     reference:         message_number,
                     len:               info.len(),
@@ -317,15 +318,8 @@ impl Oxy {
             ReadDir { path } => {
                 self.bob_only();
                 let mut results = Vec::new();
-                let dents = read_dir(path);
-                if dents.is_err() {
-                    self.send(Reject {
-                        message_number,
-                        note: "read_dir failed".to_string(),
-                    });
-                    return;
-                }
-                for entry in dents.unwrap() {
+                let dents = read_dir(path).map_err(|_| "read_dir failed")?;
+                for entry in dents {
                     if let Ok(entry) = entry {
                         results.push(entry.file_name().to_string_lossy().into_owned());
                     }
@@ -357,36 +351,16 @@ impl Oxy {
                     3 => &SHA512,
                     _ => panic!(),
                 };
-                let file = File::open(path);
-                if file.is_err() {
-                    self.send(Reject {
-                        message_number,
-                        note: "Failed to open file".to_string(),
-                    });
-                    return;
-                }
-                let mut file = file.unwrap();
+                let mut file = File::open(path).map_err(|_| "Failed to open file")?;
                 let mut context = Context::new(algorithm);
                 file.seek(SeekFrom::Start(offset_start.unwrap_or(0))).unwrap();
                 let mut ticker = offset_start.unwrap_or(0);
                 let mut data = [0u8; 4096];
                 let offset_end = offset_end.unwrap_or(file.metadata().unwrap().len());
                 loop {
-                    let result = file.read(&mut data[..]);
-                    if result.is_err() {
-                        self.send(Reject {
-                            message_number,
-                            note: "Error reading file".to_string(),
-                        });
-                        return;
-                    }
-                    let result = result.unwrap() as u64;
+                    let result = file.read(&mut data[..]).map_err(|_| "Error reading file")? as u64;
                     if result == 0 {
-                        self.send(Reject {
-                            message_number,
-                            note: "Reached end-of-file?".to_string(),
-                        });
-                        return;
+                        Err("Reached end of file")?;
                     }
                     if ticker + result >= offset_end {
                         let to_take = (offset_end - ticker) as usize;
@@ -405,6 +379,7 @@ impl Oxy {
                 });
             }
             _ => (),
-        }
+        };
+        Ok(())
     }
 }

@@ -53,6 +53,14 @@ impl Ui {
         }
     }
 
+    pub fn log(&self, message: &str) {
+        #[cfg(unix)]
+        self.cooked();
+        println!("{}", message);
+        #[cfg(unix)]
+        self.raw();
+    }
+
     pub fn pty_data(&self, data: &[u8]) {
         #[cfg(windows)]
         unimplemented!();

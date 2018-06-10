@@ -11,6 +11,7 @@ pub enum OxyMessage {
     PipeCommandInput { reference: u64, input: Vec<u8> },
     PipeCommandExited { reference: u64 },
 	Reject { message_number: u64, note: String },
+    Success { message_number: u64 },
 	PtyRequest { command: String },
 	PtyRequestResponse { granted: bool },
 	PtySizeAdvertisement { w: u16, h: u16 },
@@ -18,7 +19,7 @@ pub enum OxyMessage {
 	PtyOutput { data: Vec<u8> },
     PtyExited { status: i32 },
 	DownloadRequest { path: String, offset_start: Option<u64>, offset_end: Option<u64> },
-	UploadRequest { path: String, filepart: String, offset_start: Option<u64>, offset_end: Option<u64> },
+	UploadRequest { path: String, filepart: String, offset_start: Option<u64> },
 	FileSize { reference: u64, size: u64 },
 	FileData { reference: u64, data: Vec<u8> },
 	RemoteOpen { addr: String },
@@ -38,4 +39,5 @@ pub enum OxyMessage {
     ProtocolVersionAnnounce { version: u64 },
     FileHashRequest { path: String, offset_start: Option<u64>, offset_end: Option<u64>, hash_algorithm: u64 },
     FileHashData { reference: u64, digest: Vec<u8> },
+    FileTruncateRequest { path: String, len: u64 },    
 }

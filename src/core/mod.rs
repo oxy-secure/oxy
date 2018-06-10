@@ -291,11 +291,13 @@ impl Oxy {
                     reference: *reference,
                     data:      Vec::new(),
                 });
+                self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
                 debug!("Transfer finished with cutoff: {}", reference);
                 to_remove.push(*reference);
                 continue;
             }
             if amt == 0 {
+                self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
                 debug!("Transfer finished: {}", reference);
                 to_remove.push(*reference);
             }
@@ -453,7 +455,6 @@ impl Oxy {
                     path,
                     filepart,
                     offset_start: None,
-                    offset_end: None,
                 });
                 *self.internal.file_transfer_reference.borrow_mut() = Some(reference);
                 self.send(FileData {
@@ -593,7 +594,13 @@ impl Oxy {
         self.exit_if_i_am_a_completed_copy_peer();
         for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all() {
             let message_number = self.tick_incoming();
-            self.handle_message(message, message_number);
+            let result = self.handle_message(message, message_number);
+            if result.is_err() {
+                self.send(Reject {
+                    message_number,
+                    note: result.unwrap_err(),
+                });
+            }
         }
         self.service_transfers();
         self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR

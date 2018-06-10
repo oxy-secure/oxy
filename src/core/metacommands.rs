@@ -28,7 +28,8 @@ fn create_app() -> App<'static, 'static> {
         SubCommand::with_name("upload")
             .about("Upload a file")
             .arg(Arg::with_name("local path").index(1))
-            .arg(Arg::with_name("remote path").index(2)),
+            .arg(Arg::with_name("remote path").index(2))
+            .arg(Arg::with_name("offset start").long("start").takes_value(true)),
         SubCommand::with_name("tun")
             .about("Bridge two tun devices.")
             .long_about(
@@ -138,8 +139,7 @@ impl Oxy {
                         let id = self.send(UploadRequest {
                             path:         matches.value_of("remote path").unwrap().to_string(),
                             filepart:     buf.file_name().unwrap().to_string_lossy().into_owned(),
-                            offset_start: None,
-                            offset_end:   None,
+                            offset_start: matches.value_of("offset start").map(|x| x.parse().unwrap()),
                         });
                         let len = file.metadata().unwrap().len();
                         debug!("Upload started");
