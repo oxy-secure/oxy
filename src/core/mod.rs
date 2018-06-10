@@ -592,8 +592,16 @@ impl Oxy {
             self.exit(0);
         }
         self.exit_if_i_am_a_completed_copy_peer();
-        for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all() {
+        for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all_tolerant() {
             let message_number = self.tick_incoming();
+            if message.is_none() {
+                self.send(Reject {
+                    message_number,
+                    note: "Invalid message".to_string(),
+                });
+                continue;
+            }
+            let message = message.unwrap();
             let result = self.handle_message(message, message_number);
             if result.is_err() {
                 self.send(Reject {
