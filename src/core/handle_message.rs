@@ -378,7 +378,7 @@ impl Oxy {
                     digest,
                 });
             }
-            _ => (),
+            _ => Err("Unsupported message type")?,
         };
         Ok(())
     }
