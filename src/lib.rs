@@ -14,6 +14,7 @@ extern crate libc;
 #[cfg(unix)]
 extern crate nix;
 extern crate num;
+extern crate parking_lot;
 extern crate shlex;
 #[cfg(unix)]
 extern crate termion;

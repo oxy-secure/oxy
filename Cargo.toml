@@ -27,8 +27,6 @@ nix = "0.11"
 libc = "0.2.40"
 data-encoding = "2.1.1"
 textwrap = { version = "0.10", features = ["term_size", "hyphenation"] }
-
-[dev-dependencies]
 parking_lot = { version = "0.5.5", features = ["nightly"] }
 
 [target.'cfg(unix)'.dependencies]

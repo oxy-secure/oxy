@@ -87,6 +87,7 @@ fn remote_to_different_remote() -> ! {
 
 fn run_source(peer: BufferedTransport) {
     let dest = arg::source_peer(0);
+    ::client::knock(&dest[..], ::keys::knock_port());
     let remote = TcpStream::connect(&dest[..]).unwrap();
     let oxy = Oxy::create(remote);
     oxy.fetch_files(peer);
@@ -95,6 +96,7 @@ fn run_source(peer: BufferedTransport) {
 
 fn run_dest(peer: BufferedTransport) {
     let dest = arg::dest_peer();
+    ::client::knock(&dest[..], ::keys::knock_port());
     let remote = TcpStream::connect(&dest[..]).unwrap();
     let oxy = Oxy::create(remote);
     oxy.recv_files(peer);
