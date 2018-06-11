@@ -62,12 +62,18 @@ impl Ui {
             let decimal = progress % 10;
             let line1 = format!("Transfered: {}.{}%", percentage, decimal);
             let barwidth: u64 = (width * percentage) / 100;
-            let x = "=".repeat(barwidth as usize);
+            let mut x = "=".repeat(barwidth as usize);
+            if x.len() > 0 && percentage < 100 {
+                let len = x.len();
+                x.remove(len - 1);
+                x.push('>');
+            }
             {
                 let stdout = ::std::io::stdout();
                 let mut lock = stdout.lock();
                 let mut data = Vec::new();
                 data.extend(b"\x1b[s"); // Save cursor position
+                data.extend(b"\x1b[100m"); // Grey background
                 data.extend(b"\x1b[2;1H"); // Move to the second line
                 data.extend(b"\x1b[0K"); // Clear the line
                 data.extend(b"\x1b[1;1H"); // Move to the first line
@@ -76,6 +82,7 @@ impl Ui {
                 data.extend(b"\n");
                 data.extend(x.as_bytes());
                 data.extend(b"\n");
+                data.extend(b"\x1b[0m"); // Reset background
                 data.extend(b"\x1b[u"); // Restore cursor position
                 lock.write_all(&data[..]).unwrap();
                 lock.flush().unwrap();
