@@ -56,6 +56,7 @@ pub struct OxyInternal {
     response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
+    post_auth_hook: RefCell<Option<Rc<Fn() -> ()>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -99,6 +100,7 @@ impl Oxy {
             response_watchers: RefCell::new(Vec::new()),
             metacommand_queue: RefCell::new(Vec::new()),
             is_daemon: RefCell::new(false),
+            post_auth_hook: RefCell::new(None),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -117,6 +119,10 @@ impl Oxy {
 
     pub fn set_daemon(&self) {
         *self.internal.is_daemon.borrow_mut() = true;
+    }
+
+    pub fn set_post_auth_hook(&self, callback: Rc<Fn() -> ()>) {
+        *self.internal.post_auth_hook.borrow_mut() = Some(callback);
     }
 
     fn queue_metacommand(&self, command: Vec<String>) {
@@ -180,7 +186,7 @@ impl Oxy {
         oxy.launch();
     }
 
-    fn send(&self, message: OxyMessage) -> u64 {
+    pub fn send(&self, message: OxyMessage) -> u64 {
         let message_number = self.tick_outgoing();
         debug!("Sending message {}", message_number);
         trace!("Sending message {}: {:?}", message_number, message);
@@ -427,6 +433,9 @@ impl Oxy {
         self.register_signal_handler();
         let proxy = self.clone();
         set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
+        if self.internal.post_auth_hook.borrow().is_some() {
+            (self.internal.post_auth_hook.borrow_mut().take().unwrap())();
+        }
     }
 
     fn run_batched_metacommands(&self) {
@@ -530,7 +539,7 @@ impl Oxy {
         ::std::process::exit(status);
     }
 
-    fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
+    pub fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
         if self.internal.response_watchers.borrow().len() >= 10 {
             debug!("Potential response watcher accumulation detected.");
         }

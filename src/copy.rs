@@ -8,7 +8,7 @@ pub fn run() -> ! {
     transportation::run();
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct CopyManager {
     i: Rc<CopyManagerInternal>,
 }
@@ -18,6 +18,7 @@ struct CopyManagerInternal {
     connections: RefCell<HashMap<String, Oxy>>,
     destination: RefCell<String>,
     sources:     RefCell<Vec<String>>,
+    auth_ticker: RefCell<u64>,
 }
 
 impl CopyManager {
@@ -54,7 +55,18 @@ impl CopyManager {
         }
         let connection = client::connect(peer);
         connection.set_daemon();
+        let proxy = self.clone();
+        connection.set_post_auth_hook(Rc::new(move || {
+            proxy.post_auth_hook();
+        }));
         self.i.connections.borrow_mut().insert(peer.to_string(), connection);
+    }
+
+    fn post_auth_hook(&self) {
+        *self.i.auth_ticker.borrow_mut() += 1;
+        if *self.i.auth_ticker.borrow() == self.i.connections.borrow().len() as u64 {
+            info!("All connections established.");
+        }
     }
 }
 
