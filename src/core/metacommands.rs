@@ -110,22 +110,59 @@ impl Oxy {
                     }
                     "pty" => {
                         let command = matches.value_of("command").unwrap().to_string();
-                        self.send(PtyRequest { command });
+                        let id = self.send(PtyRequest { command });
+                        let proxy = self.clone();
+                        #[cfg(unix)]
+                        self.watch(Rc::new(move |message, _| match message {
+                            Success { reference } => {
+                                if *reference != id {
+                                    return false;
+                                }
+                                if proxy.internal.ui.borrow().is_some() {
+                                    let (w, h) = proxy.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
+                                    proxy.send(PtySizeAdvertisement { w, h });
+                                    return true;
+                                }
+                                return true;
+                            }
+                            Reject { reference, .. } => {
+                                if *reference != id {
+                                    return false;
+                                }
+                                warn!("PTY open failed");
+                                return true;
+                            }
+                            _ => false,
+                        }));
                     }
                     "download" => {
-                        let file = File::create(matches.value_of("local path").unwrap().to_string());
-                        if file.is_err() {
-                            error!("Failed to open local file for writing: {}", matches.value_of("local path").unwrap());
-                            return;
-                        }
-                        let file = file.unwrap();
+                        let filepart: PathBuf = matches.value_of("remote path").unwrap().to_string().into();
+                        let filepart = filepart.file_name().unwrap().to_str().unwrap().to_string();
+                        let local_path = matches.value_of("local path").unwrap_or(&filepart).to_string();
+
                         let id = self.send(DownloadRequest {
                             path:         matches.value_of("remote path").unwrap().to_string(),
                             offset_start: matches.value_of("offset start").map(|x| x.parse().unwrap()),
                             offset_end:   matches.value_of("offset end").map(|x| x.parse().unwrap()),
                         });
-                        debug!("Download started");
-                        self.internal.transfers_in.borrow_mut().insert(id, file);
+                        let proxy = self.clone();
+                        self.watch(Rc::new(move |message, _| match message {
+                            Success { reference } => {
+                                if *reference != id {
+                                    return false;
+                                }
+                                let file = File::create(&local_path);
+                                if file.is_err() {
+                                    error!("Failed to open local file for writing: {}", local_path);
+                                    return true;
+                                }
+                                let file = file.unwrap();
+                                debug!("Download started");
+                                proxy.internal.transfers_in.borrow_mut().insert(id, file);
+                                return true;
+                            }
+                            _ => false,
+                        }));
                     }
                     "upload" => {
                         let buf: PathBuf = matches.value_of("local path").unwrap().into();
@@ -137,7 +174,7 @@ impl Oxy {
                         }
                         let file = file.unwrap();
                         let id = self.send(UploadRequest {
-                            path:         matches.value_of("remote path").unwrap().to_string(),
+                            path:         matches.value_of("remote path").unwrap_or("").to_string(),
                             filepart:     buf.file_name().unwrap().to_string_lossy().into_owned(),
                             offset_start: matches.value_of("offset start").map(|x| x.parse().unwrap()),
                         });

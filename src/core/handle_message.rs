@@ -18,11 +18,29 @@ use transportation::{
 use tuntap::{TunTap, TunTapType};
 
 impl Oxy {
+    fn dispatch_watchers(&self, message: &OxyMessage, message_number: u64) {
+        let mut hot_watchers = (*self.internal.response_watchers.borrow()).clone();
+        let start_len = hot_watchers.len();
+        hot_watchers.retain(|x| !(x)(message, message_number));
+        let mut borrow = self.internal.response_watchers.borrow_mut();
+        borrow.splice(..start_len, hot_watchers.into_iter());
+    }
+
     pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) -> Result<(), String> {
         debug!("Recieved message {}", message_number);
         trace!("Received message {}: {:?}", message_number, message);
+        self.dispatch_watchers(&message, message_number);
         match message {
             DummyMessage { .. } => (),
+            Reject { note, .. } => {
+                let message = format!("Server rejected a request: {:?}", note);
+                if self.internal.ui.borrow().is_none() {
+                    warn!("{}", message);
+                } else {
+                    self.internal.ui.borrow().as_ref().map(|x| x.log(&message));
+                    debug!("{}", message);
+                }
+            }
             Ping {} => {
                 self.send(Pong {});
             }
@@ -54,20 +72,8 @@ impl Oxy {
                 let proxy = self.clone();
                 pty.underlying.set_notify(Rc::new(move || proxy.notify_pty()));
                 *self.internal.pty.borrow_mut() = Some(pty);
-                self.send(PtyRequestResponse { granted: true });
                 trace!("Successfully allocated PTY");
-            }
-            #[cfg(unix)]
-            PtyRequestResponse { granted } => {
-                self.alice_only();
-                if !granted {
-                    warn!("PTY open failed");
-                    return Ok(());
-                }
-                if self.internal.ui.borrow().is_some() {
-                    let (w, h) = self.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
-                    self.send(PtySizeAdvertisement { w, h });
-                }
+                self.send(Success { reference: message_number });
             }
             #[cfg(unix)]
             PtySizeAdvertisement { w, h } => {
@@ -104,6 +110,12 @@ impl Oxy {
             } => {
                 use std::io::{Seek, SeekFrom};
                 self.bob_only();
+                let mut path: PathBuf = path.into();
+                if !path.is_absolute() && self.internal.pty.borrow_mut().is_some() {
+                    let mut base_path: PathBuf = self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd().into();
+                    base_path.push(path);
+                    path = base_path;
+                }
                 let mut file = File::open(path).map_err(|_| "Failed to open file")?;
                 let metadata = file.metadata().map_err(|_| "Failed to stat file")?;
                 self.send(FileSize {
@@ -128,6 +140,15 @@ impl Oxy {
                 offset_start,
             } => {
                 self.bob_only();
+                let path = if !path.is_empty() {
+                    path
+                } else {
+                    if self.internal.pty.borrow_mut().is_some() {
+                        self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd()
+                    } else {
+                        ".".to_string()
+                    }
+                };
                 let mut path: PathBuf = path.into();
                 if let Ok(meta) = metadata(&path) {
                     if meta.is_dir() {
@@ -145,6 +166,7 @@ impl Oxy {
                     file
                 };
                 self.internal.transfers_in.borrow_mut().insert(message_number, file);
+                self.send(Success { reference: message_number });
             }
             FileTruncateRequest { path, len } => {
                 #[cfg(unix)]
@@ -171,6 +193,9 @@ impl Oxy {
                 if data.is_empty() {
                     self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
                     debug!("File transfer completed");
+                    if self.perspective() == Bob {
+                        self.send(Success { reference: message_number });
+                    }
                     self.internal.transfers_in.borrow_mut().remove(&reference);
                     if self.internal.copy_peer.borrow_mut().is_some() {
                         *self.internal.fetch_file_ticker.borrow_mut() += 1;
@@ -378,7 +403,9 @@ impl Oxy {
                     digest,
                 });
             }
-            _ => Err("Unsupported message type")?,
+            _ => {
+                debug!("A not-statically supported message type came through.");
+            }
         };
         Ok(())
     }
