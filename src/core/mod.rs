@@ -4,7 +4,8 @@ mod metacommands;
 mod scoped_arg;
 
 use self::{
-    kex::{KexData, NakedState}, scoped_arg::OxyArg,
+    kex::{KexData, NakedState},
+    scoped_arg::OxyArg,
 };
 use arg;
 use byteorder::{self, ByteOrder};
@@ -14,11 +15,19 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::File, io::Read, path::PathBuf, rc::Rc, time::{Duration, Instant},
+    cell::RefCell,
+    collections::HashMap,
+    fs::File,
+    io::Read,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
-    Notifiable, Notifies, ProtocolTransport,
+    self,
+    mio::net::TcpListener,
+    set_timeout, BufferedTransport, EncryptedTransport,
+    EncryptionPerspective::{Alice, Bob},
+    MessageTransport, Notifiable, Notifies, ProtocolTransport,
 };
 #[cfg(unix)]
 use tuntap::TunTap;
@@ -43,7 +52,6 @@ pub struct OxyInternal {
     outgoing_ticker: RefCell<u64>,
     incoming_ticker: RefCell<u64>,
     transfers_out: RefCell<Vec<TransferOut>>,
-    transfers_in: RefCell<HashMap<u64, File>>,
     port_binds: RefCell<HashMap<u64, PortBind>>,
     local_streams: RefCell<HashMap<u64, PortStream>>,
     remote_streams: RefCell<HashMap<u64, PortStream>>,
@@ -51,14 +59,14 @@ pub struct OxyInternal {
     naked_state: RefCell<NakedState>,
     kex_data: RefCell<KexData>,
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
-    copy_peer: RefCell<Option<BufferedTransport>>,
-    is_copy_source: RefCell<bool>,
-    fetch_file_ticker: RefCell<u64>,
     last_message_seen: RefCell<Instant>,
-    file_transfer_reference: RefCell<Option<u64>>,
     arg: RefCell<OxyArg>,
     launched: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
+    metacommand_queue: RefCell<Vec<Vec<String>>>,
+    is_daemon: RefCell<bool>,
+    post_auth_hook: RefCell<Option<Rc<Fn() -> ()>>>,
+    send_hooks: RefCell<Vec<Rc<Fn() -> bool>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -89,7 +97,6 @@ impl Oxy {
             outgoing_ticker: RefCell::new(0),
             incoming_ticker: RefCell::new(0),
             transfers_out: RefCell::new(Vec::new()),
-            transfers_in: RefCell::new(HashMap::new()),
             port_binds: RefCell::new(HashMap::new()),
             local_streams: RefCell::new(HashMap::new()),
             remote_streams: RefCell::new(HashMap::new()),
@@ -97,14 +104,14 @@ impl Oxy {
             naked_state: RefCell::new(NakedState::Reject),
             kex_data: RefCell::new(KexData::default()),
             socks_binds: RefCell::new(HashMap::new()),
-            copy_peer: RefCell::new(None),
-            is_copy_source: RefCell::new(false),
-            fetch_file_ticker: RefCell::new(0),
-            file_transfer_reference: RefCell::new(None),
             last_message_seen: RefCell::new(Instant::now()),
             arg: RefCell::new(arg),
             launched: RefCell::new(false),
             response_watchers: RefCell::new(Vec::new()),
+            metacommand_queue: RefCell::new(Vec::new()),
+            is_daemon: RefCell::new(false),
+            post_auth_hook: RefCell::new(None),
+            send_hooks: RefCell::new(Vec::new()),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -119,6 +126,28 @@ impl Oxy {
             .unwrap()
             .set_notify(Rc::new(move || proxy.notify_naked()));
         x
+    }
+
+    pub fn set_daemon(&self) {
+        *self.internal.is_daemon.borrow_mut() = true;
+    }
+
+    pub fn set_post_auth_hook(&self, callback: Rc<Fn() -> ()>) {
+        *self.internal.post_auth_hook.borrow_mut() = Some(callback);
+    }
+
+    pub fn push_send_hook(&self, callback: Rc<Fn() -> bool>) {
+        self.internal.send_hooks.borrow_mut().push(callback);
+    }
+
+    fn queue_metacommand(&self, command: Vec<String>) {
+        self.internal.metacommand_queue.borrow_mut().push(command);
+    }
+
+    fn pop_metacommand(&self) {
+        if !self.internal.metacommand_queue.borrow().is_empty() {
+            self.handle_metacommand(self.internal.metacommand_queue.borrow_mut().remove(0));
+        }
     }
 
     fn create_ui(&self) {
@@ -140,16 +169,6 @@ impl Oxy {
 
     fn is_encrypted(&self) -> bool {
         self.internal.underlying_transport.borrow().is_some()
-    }
-
-    pub fn fetch_files(&self, peer: BufferedTransport) {
-        *self.internal.copy_peer.borrow_mut() = Some(peer);
-        *self.internal.is_copy_source.borrow_mut() = true;
-    }
-
-    pub fn recv_files(&self, peer: BufferedTransport) {
-        *self.internal.copy_peer.borrow_mut() = Some(peer);
-        *self.internal.is_copy_source.borrow_mut() = false;
     }
 
     pub fn set_args(&self, args: Vec<String>) {
@@ -182,7 +201,7 @@ impl Oxy {
         oxy.launch();
     }
 
-    fn send(&self, message: OxyMessage) -> u64 {
+    pub fn send(&self, message: OxyMessage) -> u64 {
         let message_number = self.tick_outgoing();
         debug!("Sending message {}", message_number);
         trace!("Sending message {}: {:?}", message_number, message);
@@ -263,7 +282,7 @@ impl Oxy {
         message_number
     }
 
-    fn has_write_space(&self) -> bool {
+    pub fn has_write_space(&self) -> bool {
         self.internal.underlying_transport.borrow().as_ref().unwrap().has_write_space()
     }
 
@@ -293,13 +312,14 @@ impl Oxy {
                     reference: *reference,
                     data:      Vec::new(),
                 });
-                self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
+                self.paint_progress_bar(1000);
+                self.log_info("File transfer completed");
                 debug!("Transfer finished with cutoff: {}", reference);
                 to_remove.push(*reference);
                 continue;
             }
             if amt == 0 {
-                self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
+                self.log_info("File transfer completed");
                 debug!("Transfer finished: {}", reference);
                 to_remove.push(*reference);
             }
@@ -308,8 +328,40 @@ impl Oxy {
                 data:      data[..amt].to_vec(),
             });
             *current_position += amt as u64;
+            self.paint_progress_bar((*current_position * 1000) / *cutoff_position);
         }
         self.internal.transfers_out.borrow_mut().retain(|x| !to_remove.contains(&x.reference));
+        if !to_remove.is_empty() {
+            self.pop_metacommand();
+        }
+    }
+
+    fn paint_progress_bar(&self, progress: u64) {
+        self.internal.ui.borrow().as_ref().map(|x| x.paint_progress_bar(progress));
+    }
+
+    fn log_info(&self, message: &str) {
+        if let Some(x) = self.internal.ui.borrow().as_ref() {
+            x.log_info(message);
+        } else {
+            info!("{}", message);
+        }
+    }
+
+    fn log_debug(&self, message: &str) {
+        if let Some(x) = self.internal.ui.borrow().as_ref() {
+            x.log_debug(message);
+        } else {
+            debug!("{}", message);
+        }
+    }
+
+    fn log_warn(&self, message: &str) {
+        if let Some(x) = self.internal.ui.borrow().as_ref() {
+            x.log_warn(message);
+        } else {
+            warn!("{}", message);
+        }
     }
 
     fn notify_local_stream(&self, token: u64) {
@@ -380,94 +432,31 @@ impl Oxy {
     }
 
     fn do_post_auth(&self) {
-        if self.internal.copy_peer.borrow_mut().is_some() {
-            if *self.internal.is_copy_source.borrow_mut() {
-                let filename = arg::matches().value_of("source").unwrap();
-                let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-                let cmd = ["download", &filename, "/dev/null"].to_vec();
-                let cmd = cmd.iter().map(|x| x.to_string()).collect();
-                self.handle_metacommand(cmd);
-            }
-            let proxy = self.clone();
-            let proxy = move || proxy.notify_transfer();
-            self.internal.copy_peer.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
-            self.notify_transfer();
-            return;
-        }
         if self.perspective() == Alice {
             self.run_batched_metacommands();
-            #[cfg(unix)]
-            {
-                if ::termion::is_tty(&::std::io::stdout()) {
-                    self.handle_metacommand(vec!["pty".to_string()]);
+            if !*self.internal.is_daemon.borrow() {
+                #[cfg(unix)]
+                {
+                    if ::termion::is_tty(&::std::io::stdout()) {
+                        self.handle_metacommand(vec!["pty".to_string()]);
+                    }
                 }
+                self.create_ui();
             }
-            self.create_ui();
         }
         #[cfg(unix)]
         self.register_signal_handler();
         let proxy = self.clone();
         set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
+        if self.internal.post_auth_hook.borrow().is_some() {
+            (self.internal.post_auth_hook.borrow_mut().take().unwrap())();
+        }
     }
 
     fn run_batched_metacommands(&self) {
         for command in arg::batched_metacommands() {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
-        }
-    }
-
-    fn notify_transfer(&self) {
-        if self.internal.copy_peer.borrow_mut().is_none() {
-            return;
-        }
-        trace!(
-            "Transfer notified. Available: {}",
-            self.internal.copy_peer.borrow_mut().as_mut().unwrap().available()
-        );
-        if !self.has_write_space() {
-            trace!("Outbound buffers are full, holding off");
-            return;
-        }
-        let data = self.internal.copy_peer.borrow_mut().as_mut().unwrap().recv_all_messages();
-        for data in data {
-            trace!("Transfer has a message {:?}", data);
-            let filenumber = byteorder::BE::read_u64(&data[..8]);
-            if filenumber == ::std::u64::MAX {
-                *self.internal.fetch_file_ticker.borrow_mut() = ::std::u64::MAX;
-            }
-            if self.internal.file_transfer_reference.borrow().is_some() && filenumber == *self.internal.fetch_file_ticker.borrow_mut() {
-                let reference = self.internal.file_transfer_reference.borrow_mut().unwrap();
-                self.send(FileData {
-                    data: data[8..].to_vec(),
-                    reference,
-                });
-                #[cfg(unix)]
-                ::copy::draw_progress_bar((data.len() - 8) as u64);
-            } else {
-                assert!(
-                    (filenumber == 0 && self.internal.file_transfer_reference.borrow().is_none())
-                        || filenumber == *self.internal.fetch_file_ticker.borrow_mut() + 1
-                );
-                *self.internal.fetch_file_ticker.borrow_mut() = filenumber;
-                let filepart: PathBuf = arg::source_path(filenumber).into();
-                let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
-                let path = arg::dest_path();
-                let reference = self.send(UploadRequest {
-                    path,
-                    filepart,
-                    offset_start: None,
-                });
-                *self.internal.file_transfer_reference.borrow_mut() = Some(reference);
-                self.send(FileData {
-                    data: data[8..].to_vec(),
-                    reference,
-                });
-                #[cfg(unix)]
-                ::copy::pop_file_size();
-                #[cfg(unix)]
-                ::copy::draw_progress_bar((data.len() - 8) as u64);
-            }
         }
     }
 
@@ -565,34 +554,11 @@ impl Oxy {
         ::std::process::exit(status);
     }
 
-    fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
+    pub fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
         if self.internal.response_watchers.borrow().len() >= 10 {
             debug!("Potential response watcher accumulation detected.");
         }
         self.internal.response_watchers.borrow_mut().push(callback);
-    }
-
-    fn exit_if_i_am_a_completed_uploader(&self) {
-        if self.internal.copy_peer.borrow_mut().is_some() {
-            if !*self.internal.is_copy_source.borrow_mut() {
-                let peer = self.internal.copy_peer.borrow_mut();
-                if *self.internal.fetch_file_ticker.borrow_mut() == ::std::u64::MAX {
-                    if peer.as_ref().unwrap().available() == 0 {
-                        let underlying = self.internal.underlying_transport.borrow();
-                        let mt = &underlying.as_ref().unwrap().mt;
-                        match mt {
-                            transportation::MessageTransport::EncryptedTransport(et) => {
-                                if et.is_drained_forward() {
-                                    // Boy, that sure is a tall if stack, eh?
-                                    ::std::process::exit(0);
-                                }
-                            }
-                            _ => panic!(),
-                        }
-                    }
-                }
-            }
-        }
     }
 
     fn notify_main_transport(&self) {
@@ -600,7 +566,6 @@ impl Oxy {
         if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
             self.exit(0);
         }
-        self.exit_if_i_am_a_completed_uploader();
         for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all_tolerant() {
             let message_number = self.tick_incoming();
             if message.is_none() {
@@ -620,7 +585,13 @@ impl Oxy {
             }
         }
         self.service_transfers();
-        self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR
+        let mut orig_send_hooks = self.internal.send_hooks.borrow().clone();
+        let orig_send_hooks_len = orig_send_hooks.len();
+        orig_send_hooks.retain(|x| !(x)());
+        {
+            let mut borrow = self.internal.send_hooks.borrow_mut();
+            borrow.splice(..orig_send_hooks_len, orig_send_hooks.into_iter());
+        }
     }
 }
 

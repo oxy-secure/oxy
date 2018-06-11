@@ -23,7 +23,6 @@ pub enum OxyMessage {
     PtyExited { status: i32 },
     DownloadRequest { path: String, offset_start: Option<u64>, offset_end: Option<u64> },
     UploadRequest { path: String, filepart: String, offset_start: Option<u64> },
-    FileSize { reference: u64, size: u64 },
     FileData { reference: u64, data: Vec<u8> },
     RemoteOpen { addr: String },
     RemoteBind { addr: String },

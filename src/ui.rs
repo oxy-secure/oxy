@@ -2,16 +2,19 @@ use shlex;
 use std::{cell::RefCell, fs::File, io::Write, rc::Rc};
 #[cfg(unix)]
 use termion::{
-    self, raw::{IntoRawMode, RawTerminal}, terminal_size,
+    self,
+    raw::{IntoRawMode, RawTerminal},
+    terminal_size,
 };
 use transportation::{BufferedTransport, Notifiable, Notifies};
 
 #[derive(Clone)]
 pub struct Ui {
-    notify_hook: Rc<RefCell<Option<Rc<Notifiable>>>>,
-    underlying:  BufferedTransport,
-    messages:    Rc<RefCell<Vec<UiMessage>>>,
-    platform:    Rc<RefCell<UiPlatformData>>,
+    notify_hook:   Rc<RefCell<Option<Rc<Notifiable>>>>,
+    underlying:    BufferedTransport,
+    messages:      Rc<RefCell<Vec<UiMessage>>>,
+    platform:      Rc<RefCell<UiPlatformData>>,
+    prev_progress: Rc<RefCell<u64>>,
 }
 
 #[cfg(unix)]
@@ -33,10 +36,11 @@ impl Ui {
             debug!("Creating a UI");
             let platform = UiPlatformData { raw: None };
             let ui = Ui {
-                notify_hook: Rc::new(RefCell::new(None)),
-                underlying:  BufferedTransport::from(0),
-                platform:    Rc::new(RefCell::new(platform)),
-                messages:    Rc::new(RefCell::new(Vec::new())),
+                notify_hook:   Rc::new(RefCell::new(None)),
+                underlying:    BufferedTransport::from(0),
+                platform:      Rc::new(RefCell::new(platform)),
+                messages:      Rc::new(RefCell::new(Vec::new())),
+                prev_progress: Rc::new(RefCell::new(0)),
             };
             let ui2 = ui.clone();
             ui.underlying.set_notify(Rc::new(ui2));
@@ -53,10 +57,68 @@ impl Ui {
         }
     }
 
-    pub fn log(&self, message: &str) {
+    pub fn paint_progress_bar(&self, progress: u64) {
+        #[cfg(unix)]
+        {
+            if progress == *self.prev_progress.borrow() {
+                return;
+            }
+            *self.prev_progress.borrow_mut() = progress;
+            self.cooked();
+            let width = ::termion::terminal_size().unwrap().0 as u64;
+            let percentage = progress / 10;
+            let decimal = progress % 10;
+            let line1 = format!("Transfered: {}.{}%", percentage, decimal);
+            let barwidth: u64 = (width * percentage) / 100;
+            let mut x = "=".repeat(barwidth as usize);
+            if x.len() > 0 && percentage < 100 {
+                let len = x.len();
+                x.remove(len - 1);
+                x.push('>');
+            }
+            {
+                let stdout = ::std::io::stdout();
+                let mut lock = stdout.lock();
+                let mut data = Vec::new();
+                data.extend(b"\x1b[s"); // Save cursor position
+                data.extend(b"\x1b[100m"); // Grey background
+                data.extend(b"\x1b[2;1H"); // Move to the second line
+                data.extend(b"\x1b[0K"); // Clear the line
+                data.extend(b"\x1b[1;1H"); // Move to the first line
+                data.extend(b"\x1b[0K"); // Clear the line
+                data.extend(line1.as_bytes());
+                data.extend(b"\n");
+                data.extend(x.as_bytes());
+                data.extend(b"\n");
+                data.extend(b"\x1b[0m"); // Reset background
+                data.extend(b"\x1b[u"); // Restore cursor position
+                lock.write_all(&data[..]).unwrap();
+                lock.flush().unwrap();
+            }
+            self.raw();
+        }
+    }
+
+    pub fn log_info(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
-        println!("{}", message);
+        info!("{}", message);
+        #[cfg(unix)]
+        self.raw();
+    }
+
+    pub fn log_debug(&self, message: &str) {
+        #[cfg(unix)]
+        self.cooked();
+        debug!("{}", message);
+        #[cfg(unix)]
+        self.raw();
+    }
+
+    pub fn log_warn(&self, message: &str) {
+        #[cfg(unix)]
+        self.cooked();
+        warn!("{}", message);
         #[cfg(unix)]
         self.raw();
     }

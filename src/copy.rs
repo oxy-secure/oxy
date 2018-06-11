@@ -1,234 +1,375 @@
-use arg;
-use byteorder::{self, ByteOrder};
+use client;
 use core::Oxy;
+use message::OxyMessage::*;
 use std::{
-    cell::RefCell, fs::{metadata, File}, io::{Read, Write}, net::TcpStream, path::PathBuf, rc::Rc,
+    cell::RefCell,
+    collections::HashMap,
+    fs::{metadata, read_dir, File},
+    io::{Read, Write},
+    path::PathBuf,
+    rc::Rc,
 };
-use transportation::{BufferedTransport, Notifiable, Notifies};
+use transportation;
 
-pub fn run() {
-    if !arg::homogeneous_sources() {
-        eprintln!(
-            "Sorry! Copying from multiple different sources isn't supported yet. \
-             IT REALLY SHOULD BE. Expect a lot from your tools! Don't let it stay like this forever!"
-        );
-        ::std::process::exit(1);
+pub fn run() -> ! {
+    CopyManager::create();
+    transportation::run();
+}
+
+#[derive(Default, Clone)]
+struct CopyManager {
+    i: Rc<CopyManagerInternal>,
+}
+
+#[derive(Default)]
+struct CopyManagerInternal {
+    connections:       RefCell<HashMap<String, Oxy>>,
+    destination:       RefCell<String>,
+    sources:           RefCell<Vec<String>>,
+    synthetic_sources: RefCell<Vec<(Option<String>, String, String)>>,
+    auth_ticker:       RefCell<u64>,
+    progress:          RefCell<u64>,
+}
+
+impl CopyManager {
+    fn create() -> CopyManager {
+        let x = CopyManager::default();
+        x.init();
+        x
     }
-    let src = &arg::source_peer_str(0) != "";
-    let dest = &arg::dest_peer_str() != "";
-    if src && dest {
-        remote_to_different_remote();
-        #[allow(unreachable_code)]
-        {
-            unreachable!();
+
+    fn init(&self) {
+        *self.i.progress.borrow_mut() = 1001;
+        let mut locations: Vec<String> = ::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
+        if locations.len() < 2 {
+            error!("Must provide at least two locations (a source and a destination)");
+            ::std::process::exit(1);
+        }
+        let len = locations.len();
+        let destination = locations.remove(len - 1);
+        let sources = locations;
+        for source in &sources {
+            if let Some(dest) = get_peer(source) {
+                self.create_connection(dest);
+            }
+        }
+        if let Some(dest) = get_peer(&destination) {
+            self.create_connection(dest);
+        }
+        *self.i.destination.borrow_mut() = destination;
+        *self.i.sources.borrow_mut() = sources;
+        if self.i.connections.borrow().is_empty() {
+            self.tick_transfers();
         }
     }
-    if src {
-        use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
-        let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
-        run_source(socka.into());
-        let bt: BufferedTransport = sockb.into();
-        let bt2 = bt.clone();
-        let service = RecvFilesService {
-            bt,
-            file: Rc::new(RefCell::new(None)),
-            id: Rc::new(RefCell::new(0)),
-        };
-        bt2.set_notify(Rc::new(service));
-        ::transportation::run();
-    }
-    if dest {
-        use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
-        let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
-        run_dest(socka.into());
-        let bt: BufferedTransport = sockb.into();
-        let bt2 = bt.clone();
-        let service = SendFilesService {
-            bt,
-            file: Rc::new(RefCell::new(None)),
-            id: Rc::new(RefCell::new(0)),
-        };
-        let service = Rc::new(service);
-        bt2.set_notify(service.clone());
-        service.notify();
-        ::transportation::run();
-    }
-    warn!(
-        "You appear to be asking me to copy local files to a local destination. \
-         I mean, I'll do it for you, but it seems like a weird thing to ask of a remote access tool."
-    );
-    let dest = arg::matches().value_of("dest").unwrap();
-    let metadata = ::std::fs::metadata(&dest);
-    let dir = metadata.is_ok() && metadata.unwrap().is_dir();
-    for source in arg::matches().values_of("source").unwrap() {
-        let source: PathBuf = source.into();
-        let source: PathBuf = source.canonicalize().unwrap();
-        let dest2: PathBuf = dest.into();
-        let mut dest2: PathBuf = dest2.canonicalize().unwrap();
-        if dir {
-            dest2.push(source.file_name().unwrap());
+
+    fn create_connection(&self, peer: &str) {
+        if self.i.connections.borrow().contains_key(peer) {
+            return;
         }
-        let result = ::std::fs::copy(&source, &dest2);
-        if result.is_err() {
-            warn!("{:?}", result);
-        }
+        let connection = client::connect(peer);
+        connection.set_daemon();
+        let proxy = self.clone();
+        connection.set_post_auth_hook(Rc::new(move || {
+            proxy.post_auth_hook();
+        }));
+        self.i.connections.borrow_mut().insert(peer.to_string(), connection);
     }
-}
 
-fn remote_to_different_remote() -> ! {
-    use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
-    let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
-    // ^ This is the only thing that's not Windows compatible about this at this
-    // point... Gotta replace it with a "null" BufferedTransport or something.
-    run_dest(socka.into());
-    run_source(sockb.into());
-    ::transportation::run();
-}
-
-fn run_source(peer: BufferedTransport) {
-    let dest = arg::source_peer(0);
-    ::client::knock(&dest[..], ::keys::knock_port());
-    let remote = TcpStream::connect(&dest[..]).unwrap();
-    let oxy = Oxy::create(remote);
-    oxy.fetch_files(peer);
-    oxy.soft_launch();
-}
-
-fn run_dest(peer: BufferedTransport) {
-    let dest = arg::dest_peer();
-    ::client::knock(&dest[..], ::keys::knock_port());
-    let remote = TcpStream::connect(&dest[..]).unwrap();
-    let oxy = Oxy::create(remote);
-    oxy.recv_files(peer);
-    oxy.soft_launch();
-}
-
-struct RecvFilesService {
-    bt:   BufferedTransport,
-    file: Rc<RefCell<Option<File>>>,
-    id:   Rc<RefCell<u64>>,
-}
-
-impl Notifiable for RecvFilesService {
-    fn notify(&self) {
-        for msg in self.bt.recv_all_messages() {
-            let number = byteorder::BE::read_u64(&msg[..8]);
-            if number == ::std::u64::MAX {
-                ::std::process::exit(0);
-            }
-            if self.file.borrow().is_none() || number != *self.id.borrow() {
-                if self.file.borrow().is_none() {
-                    assert!(number == 0);
-                }
-                let mut path: PathBuf = arg::dest_path().into();
-                let metadata = metadata(&path);
-                if metadata.is_ok() && metadata.unwrap().is_dir() {
-                    let part: PathBuf = arg::source_path(number).into();
-                    let part = part.canonicalize().unwrap();
-                    path.push(part.file_name().unwrap());
-                }
-                pop_file_size();
-                let file = File::create(path).unwrap();
-                *self.file.borrow_mut() = Some(file);
-                *self.id.borrow_mut() = number;
-            }
-            self.file.borrow_mut().as_mut().unwrap().write_all(&msg[8..]).unwrap();
-            let sent_amount = msg.len() - 8;
-            draw_progress_bar(sent_amount as u64);
+    fn print_progress(&self, progress: u64, filename: &str) {
+        let prev = *self.i.progress.borrow();
+        if progress < prev {
+            print!("\n\n");
         }
+        if *self.i.progress.borrow_mut() == progress {
+            return;
+        }
+        *self.i.progress.borrow_mut() = progress;
+        let percentage = progress / 10;
+        let decimal = progress % 10;
+        let line1 = format!("Transfering: {:?} Transfered: {}.{}%", filename, percentage, decimal);
+        let width = ::termion::terminal_size().unwrap().0 as u64;
+        let barwidth: u64 = (width * percentage) / 100;
+        let mut line2 = "=".repeat(barwidth as usize);
+        if line2.len() > 0 && percentage < 100 {
+            let len = line2.len();
+            line2.remove(len - 1);
+            line2.push('>');
+        }
+        let mut data = Vec::new();
+        data.extend(b"\x1b[2A"); // Move up two lines
+        data.extend(b"\x1b[0K"); // Clear the line
+        data.extend(line1.as_bytes());
+        data.extend(b"\n\x1b[0K");
+        data.extend(line2.as_bytes());
+        data.extend(b"\n");
+        let stdout = ::std::io::stdout();
+        let mut lock = stdout.lock();
+        lock.write_all(&data[..]).unwrap();
+        lock.flush().unwrap();
     }
-}
 
-struct SendFilesService {
-    bt:   BufferedTransport,
-    file: Rc<RefCell<Option<File>>>,
-    id:   Rc<RefCell<u64>>,
-}
-
-impl Notifiable for SendFilesService {
-    fn notify(&self) {
-        trace!("SendFilesService Notified");
-        if self.file.borrow().is_none() {
-            let id = *self.id.borrow();
-            trace!("ID: {:?}", id);
-            if id == ::std::u64::MAX {
-                return;
-            }
-            if id >= arg::matches().occurrences_of("source") {
-                self.bt.send_message(b"\xff\xff\xff\xff\xff\xff\xff\xff");
-                *self.id.borrow_mut() = ::std::u64::MAX;
-                return;
-            }
-            let file = File::open(arg::source_path(id)).unwrap();
-            push_file_size(file.metadata().unwrap().len());
-            *self.file.borrow_mut() = Some(file);
+    fn tick_transfers(&self) {
+        if self.i.sources.borrow().is_empty() && self.i.synthetic_sources.borrow().is_empty() {
+            info!("Finished!");
+            ::std::process::exit(0);
         }
-        if self.bt.has_write_space() {
-            let mut page = [0u8; 2048];
-            let result = self.file.borrow_mut().as_mut().unwrap().read(&mut page);
-            trace!("SendFilesService file read: {:?}", result);
-            if result.is_ok() {
-                let mut message: Vec<u8> = Vec::new();
-                message.resize(8, 0);
-                byteorder::BE::write_u64(&mut message[..8], *self.id.borrow());
-                message.extend(&page[..*result.as_ref().unwrap()]);
-                self.bt.send_message(&message);
-            }
-            if result.is_err() || result.unwrap() < page.len() {
-                self.file.borrow_mut().take();
-                *self.id.borrow_mut() += 1;
-            }
+        *self.i.progress.borrow_mut() = 1001;
+        let peer;
+        let head;
+        let tail;
+        if !self.i.synthetic_sources.borrow().is_empty() {
+            let (a, b, c) = self.i.synthetic_sources.borrow_mut().remove(0);
+            peer = a;
+            head = b;
+            tail = c;
         } else {
-            trace!("Copy peer full, holding off from SendFilesService");
+            let source = self.i.sources.borrow_mut().remove(0);
+            let path = get_path(&source).to_string();
+            if path.ends_with('/') {
+                head = path.clone();
+                tail = "".to_string();
+            } else {
+                head = PathBuf::from(path.clone())
+                    .parent()
+                    .map(|x| x.to_str().unwrap().to_string())
+                    .unwrap_or("".to_string());
+                tail = PathBuf::from(path.clone())
+                    .file_name()
+                    .map(|x| x.to_str().unwrap().to_string())
+                    .unwrap_or("".to_string());
+            }
+            peer = get_peer(&source).map(|x| x.to_string());
+        }
+        if let Some(peer) = peer {
+            let borrow = self.i.connections.borrow();
+            let connection = borrow.get(&peer).unwrap().clone();
+            let mut path: PathBuf = head.clone().into();
+            let tailbuf: PathBuf = tail.clone().into();
+            path.push(tailbuf);
+            let path = path.to_str().unwrap().to_string();
+            let path = path.trim_right_matches('/').to_string();
+            info!("Downloading {:?}", path);
+            let id = connection.send(StatRequest { path: path.clone() });
+            let proxy = self.clone();
+            connection.clone().watch(Rc::new(move |message, _| match message {
+                StatResult { reference, is_dir, len, .. } if *reference == id => {
+                    let head = head.clone();
+                    let tail = tail.clone();
+                    let path = path.clone();
+                    let len = *len;
+                    debug!("Got stat result: {:?}", message);
+                    if *is_dir {
+                        let id = connection.send(ReadDir { path: path.clone() });
+                        let proxy = proxy.clone();
+                        let peer = peer.clone();
+                        connection.clone().watch(Rc::new(move |message, _| match message {
+                            ReadDirResult {
+                                reference,
+                                complete,
+                                answers,
+                            } if *reference == id =>
+                            {
+                                let tail: PathBuf = tail.clone().into();
+                                for answer in answers {
+                                    let mut tail = tail.clone();
+                                    tail.push(answer);
+                                    let tail = tail.to_str().unwrap().trim_right_matches('/').to_string();
+                                    proxy.i.synthetic_sources.borrow_mut().insert(0, (Some(peer.clone()), head.clone(), tail));
+                                }
+                                if *complete {
+                                    proxy.tick_transfers();
+                                }
+                                return *complete;
+                            }
+                            _ => false,
+                        }));
+                    } else {
+                        if get_peer(&*proxy.i.destination.borrow()).is_some() {
+                            unimplemented!("Remote-to-remote copy coming soon");
+                        } else {
+                            let id = connection.send(DownloadRequest {
+                                path:         path.clone(),
+                                offset_start: None,
+                                offset_end:   None,
+                            });
+                            let dest = proxy.i.destination.borrow().clone();
+                            let mut dest: PathBuf = dest.into();
+                            let dest_tail: PathBuf = tail.into();
+                            dest.push(dest_tail);
+                            let file_name = dest.file_name().unwrap().to_str().unwrap().to_string();
+                            ::std::fs::create_dir_all(dest.parent().unwrap()).ok();
+                            let file = File::create(&dest);
+                            if file.is_err() {
+                                warn!("Failed to create local file for writing: {:?}", dest);
+                                proxy.tick_transfers();
+                                return true;
+                            }
+                            let file = Rc::new(RefCell::new(file.unwrap()));
+                            let proxy = proxy.clone();
+                            let written = Rc::new(RefCell::new(0u64));
+                            connection.clone().watch(Rc::new(move |message, _| match message {
+                                FileData { reference, data } if *reference == id => {
+                                    if data.is_empty() {
+                                        info!("Transfer finished.");
+                                        proxy.tick_transfers();
+                                        return true;
+                                    }
+                                    let result = file.borrow_mut().write_all(&data[..]);
+                                    if result.is_err() {
+                                        warn!("Error writing data to local file");
+                                        proxy.tick_transfers();
+                                        return true;
+                                    }
+                                    *written.borrow_mut() += data.len() as u64;
+                                    let progress = (*written.borrow() * 1000) / len;
+                                    proxy.print_progress(progress, &file_name);
+                                    return false;
+                                }
+                                Reject { reference, note } if *reference == id => {
+                                    warn!("Error reading file: {:?}", note);
+                                    proxy.tick_transfers();
+                                    return true;
+                                }
+                                _ => false,
+                            }));
+                        }
+                    }
+                    return true;
+                }
+                Reject { reference, note } if *reference == id => {
+                    warn!("Failed to stat remote file {:?}, {:?}", path, note);
+                    proxy.tick_transfers();
+                    return true;
+                }
+                _ => false,
+            }));
+        } else {
+            let mut fullpath = PathBuf::from(&head);
+            fullpath.push(PathBuf::from(&tail));
+            info!("Trying to upload {:?}", fullpath);
+            let md = metadata(&fullpath);
+            if md.is_err() {
+                warn!("Failed to stat local file {:?}", fullpath);
+                self.tick_transfers();
+            }
+            let md = md.unwrap();
+            if md.is_dir() {
+                for i in read_dir(&fullpath).unwrap() {
+                    let i = i.unwrap();
+                    let tail = format!("{}/{}", tail, i.file_name().into_string().unwrap());
+                    self.i.synthetic_sources.borrow_mut().push((None, head.clone(), tail));
+                }
+                self.tick_transfers();
+                return;
+            } else {
+                let dest = self.i.destination.borrow().clone();
+                let dest_peer = get_peer(&dest);
+                let dest_path = get_path(&dest);
+                if dest_peer.is_none() {
+                    let mut dest_path = PathBuf::from(dest_path);
+                    dest_path.push(PathBuf::from(&tail));
+                    ::std::fs::create_dir_all(dest_path.parent().unwrap()).ok();
+                    ::std::fs::copy(&fullpath, &dest_path).unwrap();
+                    info!("Uploaded {:?}", fullpath);
+                    self.tick_transfers();
+                    return;
+                } else {
+                    let dest_connection = {
+                        let borrow = self.i.connections.borrow();
+                        borrow.get(dest_peer.unwrap()).unwrap().clone()
+                    };
+                    let proxy = self.clone();
+                    let mut dest_path = PathBuf::from(&dest_path);
+                    dest_path.push(PathBuf::from(&tail));
+
+                    let file_name = fullpath.file_name().unwrap().to_str().unwrap().to_string();
+                    let file = File::open(&fullpath);
+                    if file.is_err() {
+                        warn!("Failed to open local file {:?}", file);
+                    }
+                    let file = file.unwrap();
+                    let len = file.metadata().unwrap().len();
+                    let file = Rc::new(RefCell::new(file));
+                    let written = Rc::new(RefCell::new(0));
+
+                    let id = dest_connection.send(UploadRequest {
+                        path:         dest_path.parent().unwrap().to_str().unwrap().to_string(),
+                        filepart:     dest_path.file_name().unwrap().to_str().unwrap().to_string(),
+                        offset_start: None,
+                    });
+                    dest_connection.clone().watch(Rc::new(move |message, _| match message {
+                        Success { reference } if *reference == id => {
+                            info!("Upload request accepted");
+                            let dest_connection = dest_connection.clone();
+                            let file = file.clone();
+                            let file_name = file_name.clone();
+                            let written = written.clone();
+                            let proxy = proxy.clone();
+                            dest_connection.clone().push_send_hook(Rc::new(move || {
+                                if dest_connection.has_write_space() {
+                                    let mut buf = [0u8; 8192];
+                                    let result = file.borrow_mut().read(&mut buf);
+                                    if result.is_err() {
+                                        warn!("Failed to read file");
+                                        proxy.tick_transfers();
+                                        return true;
+                                    }
+                                    let result = result.unwrap();
+                                    dest_connection.send(FileData {
+                                        reference: id,
+                                        data:      buf[..result].to_vec(),
+                                    });
+                                    *written.borrow_mut() += result as u64;
+                                    let progress = (*written.borrow() * 1000) / len;
+                                    proxy.print_progress(progress, &file_name);
+                                    if result == 0 {
+                                        info!("Upload finished");
+                                        proxy.tick_transfers();
+                                        return true;
+                                    }
+                                    return false;
+                                }
+                                return false;
+                            }));
+                            return true;
+                        }
+                        Reject { reference, note } if *reference == id => {
+                            warn!("Upload request failed: {:?}", note);
+                            proxy.tick_transfers();
+                            return true;
+                        }
+                        _ => false,
+                    }));
+                }
+            }
+        }
+    }
+
+    fn post_auth_hook(&self) {
+        *self.i.auth_ticker.borrow_mut() += 1;
+        if *self.i.auth_ticker.borrow() == self.i.connections.borrow().len() as u64 {
+            self.tick_transfers();
         }
     }
 }
 
-thread_local! {
-    static PROGRESS_BAR_SPACE_MADE: RefCell<bool> = RefCell::new(false);
-    static CURRENT_FILE_TRANSFER_SIZE: RefCell<Option<u64>> = RefCell::new(None);
-    static BYTES_TRANSFERED: RefCell<u64> = RefCell::new(0);
-    static QUEUED_FILE_SIZES: RefCell<Vec<u64>> = RefCell::new(Vec::new());
-}
-
-pub fn push_file_size(size: u64) {
-    trace!("Pushing a file size");
-    QUEUED_FILE_SIZES.with(|x| x.borrow_mut().push(size));
-}
-
-pub fn pop_file_size() {
-    trace!("Popping a file size");
-    set_file_size(QUEUED_FILE_SIZES.with(|x| x.borrow_mut().remove(0)));
-}
-
-pub fn set_file_size(size: u64) {
-    CURRENT_FILE_TRANSFER_SIZE.with(|x| *x.borrow_mut() = Some(size));
-    BYTES_TRANSFERED.with(|x| *x.borrow_mut() = 0);
-    PROGRESS_BAR_SPACE_MADE.with(|x| *x.borrow_mut() = false);
-}
-
-pub fn draw_progress_bar(bytes_transfered: u64) {
-    let bytes_transfered = BYTES_TRANSFERED.with(|x| {
-        *x.borrow_mut() += bytes_transfered;
-        *x.borrow()
-    });
-    let total_bytes = CURRENT_FILE_TRANSFER_SIZE.with(|x| x.borrow().clone());
-
-    if !PROGRESS_BAR_SPACE_MADE.with(|x| *x.borrow()) {
-        print!("\n\n");
-        PROGRESS_BAR_SPACE_MADE.with(|x| *x.borrow_mut() = true);
+fn get_peer<'a>(location: &'a str) -> Option<&'a str> {
+    if !location.splitn(2, '/').next().unwrap().contains(':') {
+        return None;
     }
+    if location.starts_with('[') {
+        return Some(location.splitn(2, ']').next().unwrap());
+    }
+    Some(location.splitn(2, ':').next().unwrap())
+}
 
-    print!("\x1B[2A");
-    let width = ::termion::terminal_size().unwrap().0 as u64;
-    let percentage: u64 = if let Some(total_bytes) = total_bytes {
-        (bytes_transfered * 100) / total_bytes
-    } else {
-        0
-    };
-    let line1 = format!("Transfered: {} bytes, {}%", bytes_transfered, percentage);
-    let barwidth: u64 = (width * percentage) / 100;
-    let x = "=".repeat(barwidth as usize);
-    println!("{}", line1);
-    println!("{}", x);
+fn get_path<'a>(location: &'a str) -> &'a str {
+    if !location.splitn(2, '/').next().unwrap().contains(':') {
+        return location;
+    }
+    if location.starts_with('[') {
+        return location.splitn(2, ']').nth(1).unwrap().splitn(2, ':').nth(1).unwrap();
+    }
+    location.splitn(2, ':').nth(1).unwrap()
 }
