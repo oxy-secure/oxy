@@ -4,7 +4,7 @@ use nix::{
         close, dup2, execv, fork, setsid, ForkResult::{Child, Parent}, Pid,
     },
 };
-use std::{ffi::CString, os::unix::io::RawFd};
+use std::{ffi::CString, os::unix::io::RawFd, path::PathBuf};
 use transportation::BufferedTransport;
 
 pub struct Pty {
@@ -46,6 +46,19 @@ impl Pty {
             }
             Err(_) => panic!("Fork failed"),
         }
+    }
+
+    pub fn get_cwd(&self) -> String {
+        use nix::fcntl::readlink;
+        let mut buf = [0u8; 8192];
+        let cwd: PathBuf = ".".into();
+        let cwd = cwd.canonicalize().unwrap();
+        let cwd = cwd.to_str().unwrap().to_string();
+        let proc_path: PathBuf = format!("/proc/{}/cwd", self.child_pid).into();
+        readlink(&proc_path, &mut buf)
+            .ok()
+            .map(|x| x.to_str().unwrap().to_string())
+            .unwrap_or(cwd)
     }
 
     pub fn set_size(&self, w: u16, h: u16) {

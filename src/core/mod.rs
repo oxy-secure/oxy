@@ -58,6 +58,7 @@ pub struct OxyInternal {
     file_transfer_reference: RefCell<Option<u64>>,
     arg: RefCell<OxyArg>,
     launched: RefCell<bool>,
+    response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -103,6 +104,7 @@ impl Oxy {
             last_message_seen: RefCell::new(Instant::now()),
             arg: RefCell::new(arg),
             launched: RefCell::new(false),
+            response_watchers: RefCell::new(Vec::new()),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -563,7 +565,14 @@ impl Oxy {
         ::std::process::exit(status);
     }
 
-    fn exit_if_i_am_a_completed_copy_peer(&self) {
+    fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
+        if self.internal.response_watchers.borrow().len() >= 10 {
+            debug!("Potential response watcher accumulation detected.");
+        }
+        self.internal.response_watchers.borrow_mut().push(callback);
+    }
+
+    fn exit_if_i_am_a_completed_uploader(&self) {
         if self.internal.copy_peer.borrow_mut().is_some() {
             if !*self.internal.is_copy_source.borrow_mut() {
                 let peer = self.internal.copy_peer.borrow_mut();
@@ -591,13 +600,13 @@ impl Oxy {
         if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
             self.exit(0);
         }
-        self.exit_if_i_am_a_completed_copy_peer();
+        self.exit_if_i_am_a_completed_uploader();
         for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all_tolerant() {
             let message_number = self.tick_incoming();
             if message.is_none() {
                 self.send(Reject {
-                    message_number,
-                    note: "Invalid message".to_string(),
+                    reference: message_number,
+                    note:      "Invalid message".to_string(),
                 });
                 continue;
             }
@@ -605,8 +614,8 @@ impl Oxy {
             let result = self.handle_message(message, message_number);
             if result.is_err() {
                 self.send(Reject {
-                    message_number,
-                    note: result.unwrap_err(),
+                    reference: message_number,
+                    note:      result.unwrap_err(),
                 });
             }
         }
