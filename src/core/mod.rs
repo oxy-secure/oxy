@@ -55,6 +55,7 @@ pub struct OxyInternal {
     launched: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
+    is_daemon: RefCell<bool>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -97,6 +98,7 @@ impl Oxy {
             launched: RefCell::new(false),
             response_watchers: RefCell::new(Vec::new()),
             metacommand_queue: RefCell::new(Vec::new()),
+            is_daemon: RefCell::new(false),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -111,6 +113,10 @@ impl Oxy {
             .unwrap()
             .set_notify(Rc::new(move || proxy.notify_naked()));
         x
+    }
+
+    pub fn set_daemon(&self) {
+        *self.internal.is_daemon.borrow_mut() = true;
     }
 
     fn queue_metacommand(&self, command: Vec<String>) {
@@ -407,13 +413,15 @@ impl Oxy {
     fn do_post_auth(&self) {
         if self.perspective() == Alice {
             self.run_batched_metacommands();
-            #[cfg(unix)]
-            {
-                if ::termion::is_tty(&::std::io::stdout()) {
-                    self.handle_metacommand(vec!["pty".to_string()]);
+            if !*self.internal.is_daemon.borrow() {
+                #[cfg(unix)]
+                {
+                    if ::termion::is_tty(&::std::io::stdout()) {
+                        self.handle_metacommand(vec!["pty".to_string()]);
+                    }
                 }
+                self.create_ui();
             }
-            self.create_ui();
         }
         #[cfg(unix)]
         self.register_signal_handler();

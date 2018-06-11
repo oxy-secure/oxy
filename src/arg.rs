@@ -72,6 +72,12 @@ pub fn create_app() -> App<'static, 'static> {
                 .args(&client_args)
                 .arg(Arg::with_name("bind-address").index(1).default_value("0.0.0.0:2601")),
         )
+        .subcommand(
+            SubCommand::with_name("copy")
+                .about("Copy files from any number of sources to one destination.")
+                .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
+                .arg(identity.clone()),
+        )
         .subcommand(SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."))
 }
 
