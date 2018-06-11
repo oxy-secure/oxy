@@ -14,7 +14,7 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::File, io::Read, path::PathBuf, rc::Rc, time::{Duration, Instant},
+    cell::RefCell, collections::HashMap, fs::File, io::Read, rc::Rc, time::{Duration, Instant},
 };
 use transportation::{
     self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
@@ -50,11 +50,7 @@ pub struct OxyInternal {
     naked_state: RefCell<NakedState>,
     kex_data: RefCell<KexData>,
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
-    copy_peer: RefCell<Option<BufferedTransport>>,
-    is_copy_source: RefCell<bool>,
-    fetch_file_ticker: RefCell<u64>,
     last_message_seen: RefCell<Instant>,
-    file_transfer_reference: RefCell<Option<u64>>,
     arg: RefCell<OxyArg>,
     launched: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
@@ -96,10 +92,6 @@ impl Oxy {
             naked_state: RefCell::new(NakedState::Reject),
             kex_data: RefCell::new(KexData::default()),
             socks_binds: RefCell::new(HashMap::new()),
-            copy_peer: RefCell::new(None),
-            is_copy_source: RefCell::new(false),
-            fetch_file_ticker: RefCell::new(0),
-            file_transfer_reference: RefCell::new(None),
             last_message_seen: RefCell::new(Instant::now()),
             arg: RefCell::new(arg),
             launched: RefCell::new(false),
@@ -150,20 +142,6 @@ impl Oxy {
 
     fn is_encrypted(&self) -> bool {
         self.internal.underlying_transport.borrow().is_some()
-    }
-
-    pub fn fetch_files(&self, peer: BufferedTransport) {
-        *self.internal.copy_peer.borrow_mut() = Some(peer);
-        *self.internal.is_copy_source.borrow_mut() = true;
-    }
-
-    fn is_copy_source(&self) -> bool {
-        *self.internal.is_copy_source.borrow()
-    }
-
-    pub fn recv_files(&self, peer: BufferedTransport) {
-        *self.internal.copy_peer.borrow_mut() = Some(peer);
-        *self.internal.is_copy_source.borrow_mut() = false;
     }
 
     pub fn set_args(&self, args: Vec<String>) {
@@ -427,20 +405,6 @@ impl Oxy {
     }
 
     fn do_post_auth(&self) {
-        if self.internal.copy_peer.borrow_mut().is_some() {
-            if *self.internal.is_copy_source.borrow_mut() {
-                let filename = arg::matches().value_of("source").unwrap();
-                let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-                let cmd = ["download", &filename, "/dev/null"].to_vec();
-                let cmd = cmd.iter().map(|x| x.to_string()).collect();
-                self.handle_metacommand(cmd);
-            }
-            let proxy = self.clone();
-            let proxy = move || proxy.notify_transfer();
-            self.internal.copy_peer.borrow_mut().as_mut().unwrap().set_notify(Rc::new(proxy));
-            self.notify_transfer();
-            return;
-        }
         if self.perspective() == Alice {
             self.run_batched_metacommands();
             #[cfg(unix)]
@@ -461,60 +425,6 @@ impl Oxy {
         for command in arg::batched_metacommands() {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
-        }
-    }
-
-    fn notify_transfer(&self) {
-        if self.internal.copy_peer.borrow_mut().is_none() {
-            return;
-        }
-        trace!(
-            "Transfer notified. Available: {}",
-            self.internal.copy_peer.borrow_mut().as_mut().unwrap().available()
-        );
-        if !self.has_write_space() {
-            trace!("Outbound buffers are full, holding off");
-            return;
-        }
-        let data = self.internal.copy_peer.borrow_mut().as_mut().unwrap().recv_all_messages();
-        for data in data {
-            trace!("Transfer has a message {:?}", data);
-            let filenumber = byteorder::BE::read_u64(&data[..8]);
-            if filenumber == ::std::u64::MAX {
-                *self.internal.fetch_file_ticker.borrow_mut() = ::std::u64::MAX;
-            }
-            if self.internal.file_transfer_reference.borrow().is_some() && filenumber == *self.internal.fetch_file_ticker.borrow_mut() {
-                let reference = self.internal.file_transfer_reference.borrow_mut().unwrap();
-                self.send(FileData {
-                    data: data[8..].to_vec(),
-                    reference,
-                });
-                #[cfg(unix)]
-                ::copy::draw_progress_bar((data.len() - 8) as u64);
-            } else {
-                assert!(
-                    (filenumber == 0 && self.internal.file_transfer_reference.borrow().is_none())
-                        || filenumber == *self.internal.fetch_file_ticker.borrow_mut() + 1
-                );
-                *self.internal.fetch_file_ticker.borrow_mut() = filenumber;
-                let filepart: PathBuf = arg::source_path(filenumber).into();
-                let filepart = filepart.file_name().unwrap().to_string_lossy().into_owned();
-                let path = arg::dest_path();
-                let reference = self.send(UploadRequest {
-                    path,
-                    filepart,
-                    offset_start: None,
-                });
-                *self.internal.file_transfer_reference.borrow_mut() = Some(reference);
-                self.send(FileData {
-                    data: data[8..].to_vec(),
-                    reference,
-                });
-                #[cfg(unix)]
-                ::copy::pop_file_size();
-                #[cfg(unix)]
-                ::copy::draw_progress_bar((data.len() - 8) as u64);
-            }
         }
     }
 
@@ -619,35 +529,11 @@ impl Oxy {
         self.internal.response_watchers.borrow_mut().push(callback);
     }
 
-    fn exit_if_i_am_a_completed_uploader(&self) {
-        if self.internal.copy_peer.borrow_mut().is_some() {
-            if !*self.internal.is_copy_source.borrow_mut() {
-                let peer = self.internal.copy_peer.borrow_mut();
-                if *self.internal.fetch_file_ticker.borrow_mut() == ::std::u64::MAX {
-                    if peer.as_ref().unwrap().available() == 0 {
-                        let underlying = self.internal.underlying_transport.borrow();
-                        let mt = &underlying.as_ref().unwrap().mt;
-                        match mt {
-                            transportation::MessageTransport::EncryptedTransport(et) => {
-                                if et.is_drained_forward() {
-                                    // Boy, that sure is a tall if stack, eh?
-                                    ::std::process::exit(0);
-                                }
-                            }
-                            _ => panic!(),
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn notify_main_transport(&self) {
         trace!("Core notified");
         if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
             self.exit(0);
         }
-        self.exit_if_i_am_a_completed_uploader();
         for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all_tolerant() {
             let message_number = self.tick_incoming();
             if message.is_none() {
@@ -667,7 +553,6 @@ impl Oxy {
             }
         }
         self.service_transfers();
-        self.notify_transfer(); // Uhh... this is a function naming disaster. REFACTOR
     }
 }
 

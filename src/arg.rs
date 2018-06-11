@@ -1,8 +1,6 @@
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger;
-use std::{
-    env, net::{SocketAddr, ToSocketAddrs},
-};
+use std::env;
 use transportation::EncryptionPerspective;
 
 lazy_static! {
@@ -75,13 +73,6 @@ pub fn create_app() -> App<'static, 'static> {
                 .arg(Arg::with_name("bind-address").index(1).default_value("0.0.0.0:2601")),
         )
         .subcommand(SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."))
-        .subcommand(
-            SubCommand::with_name("copy")
-                .about("Transfer files. Source, destination, or both may be remote paths.")
-                .arg(identity)
-                .arg(Arg::with_name("source").index(1).multiple(true).required(true))
-                .arg(Arg::with_name("dest").index(2).required(true)),
-        )
 }
 
 fn create_matches() -> ArgMatches<'static> {
@@ -110,71 +101,6 @@ pub fn mode() -> String {
 
 pub fn matches() -> &'static ArgMatches<'static> {
     MATCHES.subcommand_matches(mode()).unwrap()
-}
-
-fn path_peer(arg: &str) -> Vec<SocketAddr> {
-    if !arg.splitn(2, '/').next().unwrap().contains(':') {
-        return Vec::new();
-    }
-    if arg.starts_with('[') {
-        let peer = arg.splitn(2, '[').nth(1).unwrap().splitn(2, ']').next().unwrap().to_string();
-        return peer.to_socket_addrs().unwrap().collect();
-    }
-    (arg.splitn(2, ':').next().unwrap(), 2600).to_socket_addrs().unwrap().collect()
-}
-
-fn path_peer_str(arg: &str) -> String {
-    if !arg.splitn(2, '/').next().unwrap().contains(':') {
-        return "".to_string();
-    }
-    if arg.starts_with('[') {
-        return format!("{}]", arg.splitn(2, ']').next().unwrap());
-    }
-    arg.splitn(2, ':').next().unwrap().to_string()
-}
-
-pub fn homogeneous_sources() -> bool {
-    let first = source_peer_str(0);
-    for source in matches().values_of("source").unwrap().skip(1) {
-        if path_peer_str(source) != first {
-            return false;
-        }
-    }
-    return true;
-}
-
-fn path_path(arg: &str) -> String {
-    if !arg.splitn(2, '/').next().unwrap().contains(':') {
-        return arg.to_string();
-    }
-    if arg.starts_with('[') {
-        return arg.splitn(2, ']').nth(1).unwrap().splitn(2, ':').nth(1).unwrap().to_string();
-    }
-    arg.splitn(2, ':').nth(1).unwrap().to_string()
-}
-
-pub fn source_peer(n: u64) -> Vec<SocketAddr> {
-    path_peer(matches().values_of("source").unwrap().nth(n as usize).unwrap())
-}
-
-pub fn source_peer_str(n: u64) -> String {
-    path_peer_str(matches().values_of("source").unwrap().nth(n as usize).unwrap())
-}
-
-pub fn source_path(n: u64) -> String {
-    path_path(matches().values_of("source").unwrap().nth(n as usize).unwrap())
-}
-
-pub fn dest_path() -> String {
-    path_path(matches().value_of("dest").unwrap())
-}
-
-pub fn dest_peer() -> Vec<SocketAddr> {
-    path_peer(matches().value_of("dest").unwrap())
-}
-
-pub fn dest_peer_str() -> String {
-    path_peer_str(matches().value_of("dest").unwrap())
 }
 
 pub fn destination() -> String {
