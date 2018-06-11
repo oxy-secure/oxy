@@ -4,7 +4,8 @@ mod metacommands;
 mod scoped_arg;
 
 use self::{
-    kex::{KexData, NakedState}, scoped_arg::OxyArg,
+    kex::{KexData, NakedState},
+    scoped_arg::OxyArg,
 };
 use arg;
 use byteorder::{self, ByteOrder};
@@ -14,11 +15,19 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::File, io::Read, rc::Rc, time::{Duration, Instant},
+    cell::RefCell,
+    collections::HashMap,
+    fs::File,
+    io::Read,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
-    Notifiable, Notifies, ProtocolTransport,
+    self,
+    mio::net::TcpListener,
+    set_timeout, BufferedTransport, EncryptedTransport,
+    EncryptionPerspective::{Alice, Bob},
+    MessageTransport, Notifiable, Notifies, ProtocolTransport,
 };
 #[cfg(unix)]
 use tuntap::TunTap;
@@ -57,6 +66,7 @@ pub struct OxyInternal {
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
     post_auth_hook: RefCell<Option<Rc<Fn() -> ()>>>,
+    send_hooks: RefCell<Vec<Rc<Fn() -> bool>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -101,6 +111,7 @@ impl Oxy {
             metacommand_queue: RefCell::new(Vec::new()),
             is_daemon: RefCell::new(false),
             post_auth_hook: RefCell::new(None),
+            send_hooks: RefCell::new(Vec::new()),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -123,6 +134,10 @@ impl Oxy {
 
     pub fn set_post_auth_hook(&self, callback: Rc<Fn() -> ()>) {
         *self.internal.post_auth_hook.borrow_mut() = Some(callback);
+    }
+
+    pub fn push_send_hook(&self, callback: Rc<Fn() -> bool>) {
+        self.internal.send_hooks.borrow_mut().push(callback);
     }
 
     fn queue_metacommand(&self, command: Vec<String>) {
@@ -267,7 +282,7 @@ impl Oxy {
         message_number
     }
 
-    fn has_write_space(&self) -> bool {
+    pub fn has_write_space(&self) -> bool {
         self.internal.underlying_transport.borrow().as_ref().unwrap().has_write_space()
     }
 
@@ -570,6 +585,13 @@ impl Oxy {
             }
         }
         self.service_transfers();
+        let mut orig_send_hooks = self.internal.send_hooks.borrow().clone();
+        let orig_send_hooks_len = orig_send_hooks.len();
+        orig_send_hooks.retain(|x| !(x)());
+        {
+            let mut borrow = self.internal.send_hooks.borrow_mut();
+            borrow.splice(..orig_send_hooks_len, orig_send_hooks.into_iter());
+        }
     }
 }
 

@@ -5,12 +5,22 @@ use message::OxyMessage::{self, *};
 #[cfg(unix)]
 use pty::Pty;
 use std::{
-    cell::RefCell, fs::{read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
+    cell::RefCell,
+    fs::{read_dir, symlink_metadata, File},
+    io::Write,
+    net::ToSocketAddrs,
+    path::PathBuf,
+    rc::Rc,
+    time::Instant,
 };
 use transportation::{
-    self, mio::{
-        net::{TcpListener, TcpStream}, PollOpt, Ready, Token,
-    }, BufferedTransport, EncryptionPerspective::{Alice, Bob},
+    self,
+    mio::{
+        net::{TcpListener, TcpStream},
+        PollOpt, Ready, Token,
+    },
+    BufferedTransport,
+    EncryptionPerspective::{Alice, Bob},
     Notifies,
 };
 #[cfg(unix)]
@@ -155,11 +165,13 @@ impl Oxy {
                 };
                 ::std::fs::create_dir_all(&path).ok();
                 path.push(filepart);
+                info!("Trying to upload to {:?}", path);
                 let file = if offset_start.is_none() {
                     File::create(path).map_err(|_| "Create file failed")?
                 } else {
                     use std::{
-                        fs::OpenOptions, io::{Seek, SeekFrom},
+                        fs::OpenOptions,
+                        io::{Seek, SeekFrom},
                     };
                     let mut file = OpenOptions::new().write(true).truncate(false).open(path).map_err(|_| "Open file failed")?;
                     file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
