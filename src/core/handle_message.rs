@@ -1,12 +1,11 @@
 use super::{PortBind, PortStream};
-use arg::{self, perspective};
-use byteorder::{self, ByteOrder};
+use arg::perspective;
 use core::Oxy;
 use message::OxyMessage::{self, *};
 #[cfg(unix)]
 use pty::Pty;
 use std::{
-    fs::{metadata, read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
+    cell::RefCell, fs::{read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
 };
 use transportation::{
     self, mio::{
@@ -34,12 +33,7 @@ impl Oxy {
             DummyMessage { .. } => (),
             Reject { note, .. } => {
                 let message = format!("Server rejected a request: {:?}", note);
-                if self.internal.ui.borrow().is_none() {
-                    warn!("{}", message);
-                } else {
-                    self.internal.ui.borrow().as_ref().map(|x| x.log(&message));
-                    debug!("{}", message);
-                }
+                self.log_debug(&message);
             }
             Ping {} => {
                 self.send(Pong {});
@@ -117,14 +111,10 @@ impl Oxy {
                     path = base_path;
                 }
                 let mut file = File::open(path).map_err(|_| "Failed to open file")?;
-                let metadata = file.metadata().map_err(|_| "Failed to stat file")?;
-                self.send(FileSize {
-                    reference: message_number,
-                    size:      metadata.len(),
-                });
                 if let Some(offset_start) = offset_start {
                     file.seek(SeekFrom::Start(offset_start)).map_err(|_| "Start-seek failed")?;
                 }
+                let metadata = file.metadata().unwrap();
                 let offset_end = offset_end.unwrap_or(metadata.len());
                 use super::TransferOut;
                 self.internal.transfers_out.borrow_mut().push(TransferOut {
@@ -133,6 +123,7 @@ impl Oxy {
                     current_position: offset_start.unwrap_or(0),
                     cutoff_position: offset_end,
                 });
+                self.send(Success { reference: message_number });
             }
             UploadRequest {
                 path,
@@ -149,12 +140,21 @@ impl Oxy {
                         ".".to_string()
                     }
                 };
-                let mut path: PathBuf = path.into();
-                if let Ok(meta) = metadata(&path) {
-                    if meta.is_dir() {
-                        path.push(filepart);
-                    }
-                }
+                let path: PathBuf = path.into();
+                let mut path = if path.is_absolute() {
+                    path
+                } else {
+                    let context = if self.internal.pty.borrow_mut().is_some() {
+                        self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd()
+                    } else {
+                        ".".to_string()
+                    };
+                    let mut context: PathBuf = context.into();
+                    context.push(path);
+                    context
+                };
+                ::std::fs::create_dir_all(&path).ok();
+                path.push(filepart);
                 let file = if offset_start.is_none() {
                     File::create(path).map_err(|_| "Create file failed")?
                 } else {
@@ -165,8 +165,27 @@ impl Oxy {
                     file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
                     file
                 };
-                self.internal.transfers_in.borrow_mut().insert(message_number, file);
+                let file = Rc::new(RefCell::new(file));
                 self.send(Success { reference: message_number });
+                let proxy = self.clone();
+                self.watch(Rc::new(move |message, m2| match message {
+                    FileData { reference, data } if *reference == message_number => {
+                        if data.is_empty() {
+                            info!("Upload complete");
+                            return true;
+                        }
+                        let result = file.borrow_mut().write_all(&data[..]);
+                        if result.is_err() {
+                            proxy.send(Reject {
+                                reference: m2,
+                                note:      "Failed to write upload data to file.".to_string(),
+                            });
+                            return true;
+                        }
+                        return false;
+                    }
+                    _ => false,
+                }));
             }
             FileTruncateRequest { path, len } => {
                 #[cfg(unix)]
@@ -184,56 +203,6 @@ impl Oxy {
                     }
                 }
                 ();
-            }
-            FileSize { reference: _, size } => {
-                #[cfg(unix)]
-                ::copy::push_file_size(size);
-            }
-            FileData { reference, data } => {
-                if data.is_empty() {
-                    self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
-                    debug!("File transfer completed");
-                    if self.perspective() == Bob {
-                        self.send(Success { reference: message_number });
-                    }
-                    self.internal.transfers_in.borrow_mut().remove(&reference);
-                    if self.internal.copy_peer.borrow_mut().is_some() {
-                        *self.internal.fetch_file_ticker.borrow_mut() += 1;
-                        if *self.internal.fetch_file_ticker.borrow_mut() < arg::matches().occurrences_of("source") {
-                            let filename = arg::matches()
-                                .values_of("source")
-                                .unwrap()
-                                .nth(*self.internal.fetch_file_ticker.borrow_mut() as usize)
-                                .unwrap();
-                            let filename = filename.splitn(2, ':').nth(1).unwrap().to_string();
-                            let cmd = ["download", &filename, "unused"].to_vec();
-                            let cmd = cmd.iter().map(|x| x.to_string()).collect();
-                            self.handle_metacommand(cmd);
-                        } else {
-                            let mut message = [0u8; 8];
-                            byteorder::BE::write_u64(&mut message, ::std::u64::MAX);
-                            self.internal.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
-                            trace!("Source is done.");
-                        }
-                    }
-                    return Ok(());
-                }
-                if self.internal.copy_peer.borrow_mut().is_none() {
-                    self.internal
-                        .transfers_in
-                        .borrow_mut()
-                        .get_mut(&reference)
-                        .unwrap()
-                        .write_all(&data[..])
-                        .unwrap();
-                } else {
-                    let ticker = *self.internal.fetch_file_ticker.borrow_mut();
-                    let mut message: Vec<u8> = Vec::new();
-                    message.resize(8, 0);
-                    byteorder::BE::write_u64(&mut message[..8], ticker);
-                    message.extend(&data);
-                    self.internal.copy_peer.borrow_mut().as_ref().unwrap().send_message(&message);
-                }
             }
             BindConnectionAccepted { reference } => {
                 assert!(perspective() == Alice);

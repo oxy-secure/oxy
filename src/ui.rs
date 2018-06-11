@@ -53,10 +53,57 @@ impl Ui {
         }
     }
 
-    pub fn log(&self, message: &str) {
+    pub fn paint_progress_bar(&self, progress: u64) {
+        #[cfg(unix)]
+        {
+            self.cooked();
+            let width = ::termion::terminal_size().unwrap().0 as u64;
+            let percentage = progress / 10;
+            let decimal = progress % 10;
+            let line1 = format!("Transfered: {}.{}%", percentage, decimal);
+            let barwidth: u64 = (width * percentage) / 100;
+            let x = "=".repeat(barwidth as usize);
+            {
+                let stdout = ::std::io::stdout();
+                let mut lock = stdout.lock();
+                let mut data = Vec::new();
+                data.extend(b"\x1b[s"); // Save cursor position
+                data.extend(b"\x1b[2;1H"); // Move to the second line
+                data.extend(b"\x1b[0K"); // Clear the line
+                data.extend(b"\x1b[1;1H"); // Move to the first line
+                data.extend(b"\x1b[0K"); // Clear the line
+                data.extend(line1.as_bytes());
+                data.extend(b"\n");
+                data.extend(x.as_bytes());
+                data.extend(b"\n");
+                data.extend(b"\x1b[u"); // Restore cursor position
+                lock.write_all(&data[..]).unwrap();
+                lock.flush().unwrap();
+            }
+            self.raw();
+        }
+    }
+
+    pub fn log_info(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
-        println!("{}", message);
+        info!("{}", message);
+        #[cfg(unix)]
+        self.raw();
+    }
+
+    pub fn log_debug(&self, message: &str) {
+        #[cfg(unix)]
+        self.cooked();
+        debug!("{}", message);
+        #[cfg(unix)]
+        self.raw();
+    }
+
+    pub fn log_warn(&self, message: &str) {
+        #[cfg(unix)]
+        self.cooked();
+        warn!("{}", message);
         #[cfg(unix)]
         self.raw();
     }

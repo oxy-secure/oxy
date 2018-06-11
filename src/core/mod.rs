@@ -43,7 +43,6 @@ pub struct OxyInternal {
     outgoing_ticker: RefCell<u64>,
     incoming_ticker: RefCell<u64>,
     transfers_out: RefCell<Vec<TransferOut>>,
-    transfers_in: RefCell<HashMap<u64, File>>,
     port_binds: RefCell<HashMap<u64, PortBind>>,
     local_streams: RefCell<HashMap<u64, PortStream>>,
     remote_streams: RefCell<HashMap<u64, PortStream>>,
@@ -59,6 +58,7 @@ pub struct OxyInternal {
     arg: RefCell<OxyArg>,
     launched: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
+    metacommand_queue: RefCell<Vec<Vec<String>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -89,7 +89,6 @@ impl Oxy {
             outgoing_ticker: RefCell::new(0),
             incoming_ticker: RefCell::new(0),
             transfers_out: RefCell::new(Vec::new()),
-            transfers_in: RefCell::new(HashMap::new()),
             port_binds: RefCell::new(HashMap::new()),
             local_streams: RefCell::new(HashMap::new()),
             remote_streams: RefCell::new(HashMap::new()),
@@ -105,6 +104,7 @@ impl Oxy {
             arg: RefCell::new(arg),
             launched: RefCell::new(false),
             response_watchers: RefCell::new(Vec::new()),
+            metacommand_queue: RefCell::new(Vec::new()),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -119,6 +119,16 @@ impl Oxy {
             .unwrap()
             .set_notify(Rc::new(move || proxy.notify_naked()));
         x
+    }
+
+    fn queue_metacommand(&self, command: Vec<String>) {
+        self.internal.metacommand_queue.borrow_mut().push(command);
+    }
+
+    fn pop_metacommand(&self) {
+        if !self.internal.metacommand_queue.borrow().is_empty() {
+            self.handle_metacommand(self.internal.metacommand_queue.borrow_mut().remove(0));
+        }
     }
 
     fn create_ui(&self) {
@@ -145,6 +155,10 @@ impl Oxy {
     pub fn fetch_files(&self, peer: BufferedTransport) {
         *self.internal.copy_peer.borrow_mut() = Some(peer);
         *self.internal.is_copy_source.borrow_mut() = true;
+    }
+
+    fn is_copy_source(&self) -> bool {
+        *self.internal.is_copy_source.borrow()
     }
 
     pub fn recv_files(&self, peer: BufferedTransport) {
@@ -293,13 +307,14 @@ impl Oxy {
                     reference: *reference,
                     data:      Vec::new(),
                 });
-                self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
+                self.paint_progress_bar(1000);
+                self.log_info("File transfer completed");
                 debug!("Transfer finished with cutoff: {}", reference);
                 to_remove.push(*reference);
                 continue;
             }
             if amt == 0 {
-                self.internal.ui.borrow().as_ref().map(|x| x.log("File transfer completed"));
+                self.log_info("File transfer completed");
                 debug!("Transfer finished: {}", reference);
                 to_remove.push(*reference);
             }
@@ -308,8 +323,40 @@ impl Oxy {
                 data:      data[..amt].to_vec(),
             });
             *current_position += amt as u64;
+            self.paint_progress_bar((*current_position * 1000) / *cutoff_position);
         }
         self.internal.transfers_out.borrow_mut().retain(|x| !to_remove.contains(&x.reference));
+        if !to_remove.is_empty() {
+            self.pop_metacommand();
+        }
+    }
+
+    fn paint_progress_bar(&self, progress: u64) {
+        self.internal.ui.borrow().as_ref().map(|x| x.paint_progress_bar(progress));
+    }
+
+    fn log_info(&self, message: &str) {
+        if let Some(x) = self.internal.ui.borrow().as_ref() {
+            x.log_info(message);
+        } else {
+            info!("{}", message);
+        }
+    }
+
+    fn log_debug(&self, message: &str) {
+        if let Some(x) = self.internal.ui.borrow().as_ref() {
+            x.log_debug(message);
+        } else {
+            debug!("{}", message);
+        }
+    }
+
+    fn log_warn(&self, message: &str) {
+        if let Some(x) = self.internal.ui.borrow().as_ref() {
+            x.log_warn(message);
+        } else {
+            warn!("{}", message);
+        }
     }
 
     fn notify_local_stream(&self, token: u64) {

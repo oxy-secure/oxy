@@ -2,7 +2,9 @@ use clap::{self, App, AppSettings, Arg, SubCommand};
 use core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy};
 use message::OxyMessage::*;
 use num;
-use std::{cell::RefCell, fs::File, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell, fs::{metadata, read_dir, File}, io::Write, path::PathBuf, rc::Rc,
+};
 use transportation::{
     self, mio::{net::TcpListener, PollOpt, Ready, Token},
 };
@@ -139,27 +141,118 @@ impl Oxy {
                         let filepart: PathBuf = matches.value_of("remote path").unwrap().to_string().into();
                         let filepart = filepart.file_name().unwrap().to_str().unwrap().to_string();
                         let local_path = matches.value_of("local path").unwrap_or(&filepart).to_string();
+                        let remote_path = matches.value_of("remote path").unwrap().to_string();
+                        let offset_start = matches.value_of("offset start").map(|x| x.parse().unwrap());
+                        let offset_end = matches.value_of("offset end").map(|x| x.parse().unwrap());
 
-                        let id = self.send(DownloadRequest {
-                            path:         matches.value_of("remote path").unwrap().to_string(),
-                            offset_start: matches.value_of("offset start").map(|x| x.parse().unwrap()),
-                            offset_end:   matches.value_of("offset end").map(|x| x.parse().unwrap()),
-                        });
+                        let id = self.send(StatRequest { path: remote_path.clone() });
+
                         let proxy = self.clone();
                         self.watch(Rc::new(move |message, _| match message {
-                            Success { reference } => {
-                                if *reference != id {
-                                    return false;
-                                }
-                                let file = File::create(&local_path);
-                                if file.is_err() {
-                                    error!("Failed to open local file for writing: {}", local_path);
+                            Reject { reference, note } if *reference == id => {
+                                proxy.log_warn(&format!("Download request rejected: {:?}", note));
+                                proxy.pop_metacommand();
+                                return true;
+                            }
+                            StatResult { reference, is_dir, len, .. } if *reference == id => {
+                                let local_path = local_path.clone();
+                                let remote_path = remote_path.clone();
+                                let proxy = proxy.clone();
+                                let len = *len;
+                                if *is_dir {
+                                    proxy.log_info("Trying to download a directory");
+                                    let id = proxy.send(ReadDir { path: remote_path.clone() });
+                                    proxy.clone().watch(Rc::new(move |message, _| match message {
+                                        ReadDirResult {
+                                            reference,
+                                            complete,
+                                            answers,
+                                        } if *reference == id =>
+                                        {
+                                            for answer in answers {
+                                                let mut new_remote_path: PathBuf = remote_path.clone().into();
+                                                new_remote_path.push(answer);
+                                                let mut new_local_path: PathBuf = local_path.clone().into();
+                                                new_local_path.push(answer);
+                                                let mut next = Vec::new();
+                                                next.push("download".to_string());
+                                                next.push(new_remote_path.to_str().unwrap().to_string());
+                                                next.push(new_local_path.to_str().unwrap().to_string());
+                                                proxy.queue_metacommand(next);
+                                            }
+                                            if *complete {
+                                                proxy.pop_metacommand();
+                                            }
+                                            return *complete;
+                                        }
+                                        Reject { reference, note } if *reference == id => {
+                                            proxy.log_warn(&format!("Failed to read remote directory: {:?}", note));
+                                            proxy.pop_metacommand();
+                                            return true;
+                                        }
+                                        _ => false,
+                                    }));
+                                    return true;
+                                } else {
+                                    let id = proxy.send(DownloadRequest {
+                                        path:         remote_path.clone(),
+                                        offset_start: offset_start,
+                                        offset_end:   offset_end,
+                                    });
+                                    proxy.clone().watch(Rc::new(move |message, _| match message {
+                                        Reject { reference, note } if *reference == id => {
+                                            let proxy = proxy.clone();
+                                            proxy.log_warn(&format!("Download request rejected: {:?}", note));
+                                            proxy.pop_metacommand();
+                                            return true;
+                                        }
+                                        Success { reference } if *reference == id => {
+                                            let local_path: PathBuf = local_path.clone().into();
+                                            let proxy = proxy.clone();
+                                            let len: u64 = len.clone();
+                                            if let Some(parent) = local_path.parent() {
+                                                ::std::fs::create_dir_all(parent).ok();
+                                            }
+                                            let file = File::create(&local_path);
+                                            if file.is_err() {
+                                                proxy.log_warn(&format!("Failed to open local file for writing: {:?}", local_path));
+                                                proxy.pop_metacommand();
+                                                return true;
+                                            }
+                                            let file = Rc::new(RefCell::new(file.unwrap()));
+                                            let downloaded_bytes = Rc::new(RefCell::new(0u64));
+                                            proxy.log_info("Download started.");
+                                            proxy.clone().watch(Rc::new(move |message, _| match message {
+                                                FileData { reference, data } if *reference == id => {
+                                                    let file = file.clone();
+                                                    let proxy = proxy.clone();
+                                                    let downloaded_bytes = downloaded_bytes.clone();
+                                                    if data.is_empty() {
+                                                        proxy.log_info("Download finished");
+                                                        proxy.pop_metacommand();
+                                                        return true;
+                                                    } else {
+                                                        let result = file.borrow_mut().write_all(&data[..]);
+                                                        if result.is_err() {
+                                                            proxy.log_warn("Failed writing download data to file");
+                                                            proxy.pop_metacommand();
+                                                            return true;
+                                                        }
+                                                        *downloaded_bytes.borrow_mut() += data.len() as u64;
+                                                        let a = *downloaded_bytes.borrow();
+                                                        let progress = (a * 1000) / len;
+                                                        proxy.paint_progress_bar(progress);
+                                                        return false;
+                                                    }
+                                                }
+                                                _ => false,
+                                            }));
+                                            return true;
+                                        }
+                                        _ => false,
+                                    }));
                                     return true;
                                 }
-                                let file = file.unwrap();
-                                debug!("Download started");
-                                proxy.internal.transfers_in.borrow_mut().insert(id, file);
-                                return true;
                             }
                             _ => false,
                         }));
@@ -167,6 +260,36 @@ impl Oxy {
                     "upload" => {
                         let buf: PathBuf = matches.value_of("local path").unwrap().into();
                         let buf = buf.canonicalize().unwrap();
+                        let remote_path = matches.value_of("remote path").unwrap_or("").to_string();
+
+                        let metadata = metadata(&buf);
+                        if metadata.is_err() {
+                            self.log_warn("Failed to stat path for upload");
+                            return;
+                        }
+                        let metadata = metadata.unwrap();
+                        if metadata.is_dir() {
+                            let dents = read_dir(&buf);
+                            if dents.is_err() {
+                                self.log_warn(&format!("Failed to read directory for upload. {:?}", buf));
+                                return;
+                            }
+                            let dents = dents.unwrap();
+                            for entry in dents {
+                                let mut new_local = buf.clone();
+                                new_local.push(entry.unwrap().file_name());
+                                let mut new_remote: PathBuf = remote_path.clone().into();
+                                new_remote.push(buf.file_name().unwrap());
+                                let mut next = Vec::new();
+                                next.push("upload".to_string());
+                                next.push(new_local.to_str().unwrap().to_string());
+                                next.push(new_remote.to_str().unwrap().to_string());
+                                self.queue_metacommand(next);
+                            }
+                            self.pop_metacommand();
+                            return;
+                        }
+
                         let file = File::open(buf.clone());
                         if file.is_err() {
                             error!("Failed to open local file for reading: {}", matches.value_of("local path").unwrap());
@@ -174,18 +297,30 @@ impl Oxy {
                         }
                         let file = file.unwrap();
                         let id = self.send(UploadRequest {
-                            path:         matches.value_of("remote path").unwrap_or("").to_string(),
+                            path:         remote_path,
                             filepart:     buf.file_name().unwrap().to_string_lossy().into_owned(),
                             offset_start: matches.value_of("offset start").map(|x| x.parse().unwrap()),
                         });
-                        let len = file.metadata().unwrap().len();
-                        debug!("Upload started");
-                        self.internal.transfers_out.borrow_mut().push(super::TransferOut {
-                            reference: id,
-                            file,
-                            current_position: 0,
-                            cutoff_position: len,
-                        });
+                        let file = Rc::new(RefCell::new(Some(file)));
+                        let proxy = self.clone();
+                        self.watch(Rc::new(move |message, _| match message {
+                            Success { reference } if *reference == id => {
+                                let len = file.borrow().as_ref().unwrap().metadata().unwrap().len();
+                                proxy.log_info("Upload started");
+                                proxy.internal.transfers_out.borrow_mut().push(super::TransferOut {
+                                    reference:        id,
+                                    file:             file.borrow_mut().take().unwrap(),
+                                    current_position: 0,
+                                    cutoff_position:  len,
+                                });
+                                return true;
+                            }
+                            Reject { reference, note } if *reference == id => {
+                                proxy.log_warn(&format!("Upload rejected: {:?}", note));
+                                return true;
+                            }
+                            _ => false,
+                        }));
                     }
                     "L" => {
                         let remote_spec = matches.value_of("remote spec").unwrap().to_string();
