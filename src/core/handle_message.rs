@@ -169,14 +169,18 @@ impl Oxy {
                 let file = Rc::new(RefCell::new(file));
                 self.send(Success { reference: message_number });
                 let proxy = self.clone();
+                debug!("Watching for FileData with reference {:?}", message_number);
                 self.watch(Rc::new(move |message, m2| match message {
                     FileData { reference, data } if *reference == message_number => {
+                        debug!("Upload watcher sees FileData");
                         if data.is_empty() {
                             proxy.send(Success { reference: m2 });
                             info!("Upload complete");
                             return true;
                         }
                         let result = file.borrow_mut().write_all(&data[..]);
+                        file.borrow_mut().flush().unwrap();
+                        debug!("Wrote {:?} on upload", data.len());
                         if result.is_err() {
                             proxy.send(Reject {
                                 reference: m2,

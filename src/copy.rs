@@ -6,6 +6,8 @@ use std::{
 };
 use transportation;
 
+const PEER_TO_PEER_BUFFER_AMT: u64 = 1024 * 1024;
+
 pub fn run() -> ! {
     CopyManager::create();
     transportation::run();
@@ -151,6 +153,7 @@ impl CopyManager {
                     let dest_peer = get_peer(&proxy.i.destination.borrow().clone()).map(|x| x.to_string());
                     let dest_path = get_path(&proxy.i.destination.borrow().clone()).to_string();
                     if let Some(dest_peer) = dest_peer {
+                        debug!("Doing peer-to-peer transfer");
                         let dest_connection = {
                             let borrow = proxy.i.connections.borrow();
                             borrow.get(&dest_peer).unwrap().clone()
@@ -168,6 +171,7 @@ impl CopyManager {
                         });
                         dest_connection.clone().watch(Rc::new(move |message, _| match message {
                             Success { reference } if *reference == upload_id => {
+                                debug!("Peer-to-peer upload accepted");
                                 let done = Rc::new(RefCell::new(false));
                                 let written = Rc::new(RefCell::new(0u64));
                                 let download_id: Rc<RefCell<Option<u64>>> = Rc::new(RefCell::new(None));
@@ -188,14 +192,29 @@ impl CopyManager {
                                         return true;
                                     }
                                     if download_id.borrow().is_none() && dest_connection.has_write_space() {
+                                        let end = if len - *written.borrow() <= PEER_TO_PEER_BUFFER_AMT {
+                                            None
+                                        } else {
+                                            Some(*written.borrow() + PEER_TO_PEER_BUFFER_AMT)
+                                        };
+                                        debug!("Initiating a peer-to-peer chunk-download {:?}", end);
                                         *download_id.borrow_mut() = Some(source_connection.send(DownloadRequest {
                                             path:         path.clone(),
-                                            offset_start: None, // TODO: Download size-limited chunks
-                                            offset_end:   None, // So we don't buffer unlimited data
+                                            offset_start: Some(*written.borrow()),
+                                            offset_end:   end.clone(),
                                         }));
                                         source_connection.clone().watch(Rc::new(move |message, _| match message {
                                             FileData { reference, data } if *reference == download_id.borrow().unwrap() => {
-                                                let send_id = source_connection.send(FileData {
+                                                if data.is_empty() && *written.borrow() < len {
+                                                    debug!("Finished a chunk");
+                                                    download_id.borrow_mut().take();
+                                                    dest_connection.notify_main_transport();
+                                                    return true;
+                                                }
+                                                if end.is_some() && *written.borrow() + data.len() as u64 > end.unwrap() {
+                                                    panic!("Server sent more data than requested! Bad server!");
+                                                }
+                                                let send_id = dest_connection.send(FileData {
                                                     reference: upload_id,
                                                     data:      data.to_vec(),
                                                 });
@@ -203,9 +222,10 @@ impl CopyManager {
                                                 let progress = (*written.borrow() * 1000) / len;
                                                 proxy.print_progress(progress, &upload_filepart);
                                                 if data.is_empty() {
+                                                    debug!("Final FileData sent. Waiting for confirmation.");
                                                     let done = done.clone();
                                                     let proxy = proxy.clone();
-                                                    source_connection.watch(Rc::new(move |message, _| match message {
+                                                    dest_connection.watch(Rc::new(move |message, _| match message {
                                                         Success { reference } if *reference == send_id => {
                                                             info!("Transfer complete.");
                                                             proxy.tick_transfers();
