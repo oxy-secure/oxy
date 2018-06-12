@@ -5,22 +5,12 @@ use message::OxyMessage::{self, *};
 #[cfg(unix)]
 use pty::Pty;
 use std::{
-    cell::RefCell,
-    fs::{read_dir, symlink_metadata, File},
-    io::Write,
-    net::ToSocketAddrs,
-    path::PathBuf,
-    rc::Rc,
-    time::Instant,
+    cell::RefCell, fs::{read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
 };
 use transportation::{
-    self,
-    mio::{
-        net::{TcpListener, TcpStream},
-        PollOpt, Ready, Token,
-    },
-    BufferedTransport,
-    EncryptionPerspective::{Alice, Bob},
+    self, mio::{
+        net::{TcpListener, TcpStream}, PollOpt, Ready, Token,
+    }, BufferedTransport, EncryptionPerspective::{Alice, Bob},
     Notifies,
 };
 #[cfg(unix)]
@@ -170,8 +160,7 @@ impl Oxy {
                     File::create(path).map_err(|_| "Create file failed")?
                 } else {
                     use std::{
-                        fs::OpenOptions,
-                        io::{Seek, SeekFrom},
+                        fs::OpenOptions, io::{Seek, SeekFrom},
                     };
                     let mut file = OpenOptions::new().write(true).truncate(false).open(path).map_err(|_| "Open file failed")?;
                     file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
@@ -183,6 +172,7 @@ impl Oxy {
                 self.watch(Rc::new(move |message, m2| match message {
                     FileData { reference, data } if *reference == message_number => {
                         if data.is_empty() {
+                            proxy.send(Success { reference: m2 });
                             info!("Upload complete");
                             return true;
                         }
