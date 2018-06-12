@@ -4,8 +4,7 @@ mod metacommands;
 mod scoped_arg;
 
 use self::{
-    kex::{KexData, NakedState},
-    scoped_arg::OxyArg,
+    kex::{KexData, NakedState}, scoped_arg::OxyArg,
 };
 use arg;
 use byteorder::{self, ByteOrder};
@@ -15,19 +14,11 @@ use message::OxyMessage::{self, *};
 use pty::Pty;
 use shlex;
 use std::{
-    cell::RefCell,
-    collections::HashMap,
-    fs::File,
-    io::Read,
-    rc::Rc,
-    time::{Duration, Instant},
+    cell::RefCell, collections::HashMap, fs::File, io::Read, rc::Rc, time::{Duration, Instant},
 };
 use transportation::{
-    self,
-    mio::net::TcpListener,
-    set_timeout, BufferedTransport, EncryptedTransport,
-    EncryptionPerspective::{Alice, Bob},
-    MessageTransport, Notifiable, Notifies, ProtocolTransport,
+    self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
+    Notifiable, Notifies, ProtocolTransport,
 };
 #[cfg(unix)]
 use tuntap::TunTap;
@@ -561,8 +552,8 @@ impl Oxy {
         self.internal.response_watchers.borrow_mut().push(callback);
     }
 
-    fn notify_main_transport(&self) {
-        trace!("Core notified");
+    pub fn notify_main_transport(&self) {
+        debug!("Core notified. Has write space: {}", self.has_write_space());
         if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
             self.exit(0);
         }

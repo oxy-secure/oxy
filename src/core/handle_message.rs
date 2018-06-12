@@ -5,22 +5,12 @@ use message::OxyMessage::{self, *};
 #[cfg(unix)]
 use pty::Pty;
 use std::{
-    cell::RefCell,
-    fs::{read_dir, symlink_metadata, File},
-    io::Write,
-    net::ToSocketAddrs,
-    path::PathBuf,
-    rc::Rc,
-    time::Instant,
+    cell::RefCell, fs::{read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
 };
 use transportation::{
-    self,
-    mio::{
-        net::{TcpListener, TcpStream},
-        PollOpt, Ready, Token,
-    },
-    BufferedTransport,
-    EncryptionPerspective::{Alice, Bob},
+    self, mio::{
+        net::{TcpListener, TcpStream}, PollOpt, Ready, Token,
+    }, BufferedTransport, EncryptionPerspective::{Alice, Bob},
     Notifies,
 };
 #[cfg(unix)]
@@ -170,8 +160,7 @@ impl Oxy {
                     File::create(path).map_err(|_| "Create file failed")?
                 } else {
                     use std::{
-                        fs::OpenOptions,
-                        io::{Seek, SeekFrom},
+                        fs::OpenOptions, io::{Seek, SeekFrom},
                     };
                     let mut file = OpenOptions::new().write(true).truncate(false).open(path).map_err(|_| "Open file failed")?;
                     file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
@@ -180,13 +169,18 @@ impl Oxy {
                 let file = Rc::new(RefCell::new(file));
                 self.send(Success { reference: message_number });
                 let proxy = self.clone();
+                debug!("Watching for FileData with reference {:?}", message_number);
                 self.watch(Rc::new(move |message, m2| match message {
                     FileData { reference, data } if *reference == message_number => {
+                        debug!("Upload watcher sees FileData");
                         if data.is_empty() {
+                            proxy.send(Success { reference: m2 });
                             info!("Upload complete");
                             return true;
                         }
                         let result = file.borrow_mut().write_all(&data[..]);
+                        file.borrow_mut().flush().unwrap();
+                        debug!("Wrote {:?} on upload", data.len());
                         if result.is_err() {
                             proxy.send(Reject {
                                 reference: m2,

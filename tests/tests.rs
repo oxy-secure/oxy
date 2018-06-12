@@ -102,3 +102,24 @@ fn catpty_rev() {
     let output = client.wait_with_output().unwrap();
     assert_eq!(&output.stdout[..], b"\x00\x10\n\xff\rB");
 }
+
+#[test]
+#[cfg(unix)]
+fn copy_single_file() {
+    let _guard = SERIAL_TESTS.lock();
+    let identity = mk_identity();
+    let mut server = Command::new("./target/debug/oxy").arg("serve-one").arg(&identity).spawn().unwrap();
+    hold();
+    let mut client = Command::new("./target/debug/oxy")
+        .arg("copy")
+        .arg("localhost:/etc/hosts")
+        .arg("/tmp/")
+        .arg(&identity)
+        .spawn()
+        .unwrap();
+    hold();
+    server.kill().ok();
+    client.kill().ok();
+    assert_eq!(metadata("/etc/hosts").unwrap().len(), metadata("/tmp/hosts").unwrap().len());
+    remove_file("/tmp/hosts").unwrap();
+}
