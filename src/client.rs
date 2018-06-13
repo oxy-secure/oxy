@@ -1,14 +1,19 @@
 use arg;
 use core::Oxy;
 use keys;
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use transportation;
 
-pub fn knock<T: ToSocketAddrs>(destination: T, port: u16) {
+pub fn knock(peer: &str) {
+    let destinations = ::conf::locate_destination(peer);
+    let port = keys::knock_port(Some(peer));
+    if destinations.is_empty() {
+        error!("Failed to resolve {:?}", peer);
+        ::std::process::exit(1);
+    }
     let knock = UdpSocket::bind("0.0.0.0:0").unwrap();
     let knock6 = UdpSocket::bind("[::0]:0").ok();
-    let destinations: Vec<SocketAddr> = destination.to_socket_addrs().expect("Failed resolving destination").collect();
-    let knock_value = keys::make_knock();
+    let knock_value = keys::make_knock(Some(peer));
     debug!("Knocking on port {}", port);
     for destination in &destinations {
         let mut destination = destination.clone();
@@ -29,16 +34,8 @@ pub fn run() {
 }
 
 pub fn connect(destination: &str) -> Oxy {
-    let mut destinations = destination.to_socket_addrs();
-    if destinations.is_err() {
-        destinations = (destination, 2600).to_socket_addrs();
-        if destinations.is_err() {
-            error!("Failed to resolve {:?}", destination);
-            ::std::process::exit(1);
-        }
-    }
-    let destinations: Vec<SocketAddr> = destinations.unwrap().collect();
-    knock(&destinations[..], keys::knock_port());
+    knock(destination);
+    let destinations = ::conf::locate_destination(destination);
     let stream = TcpStream::connect(&destinations[..]);
     if stream.is_err() {
         error!("Connection to {} failed: {:?}", destination, stream);
@@ -46,7 +43,6 @@ pub fn connect(destination: &str) -> Oxy {
     }
     let stream = stream.unwrap();
     let peer = Oxy::create(stream);
-    peer.soft_launch();
     peer
 }
 

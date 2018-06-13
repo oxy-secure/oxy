@@ -31,8 +31,13 @@ pub fn create_app() -> App<'static, 'static> {
         .short("R")
         .number_of_values(1)
         .takes_value(true);
-    let client_args = vec![metacommand.clone(), identity.clone().required(true), l_portfwd, r_portfwd, command];
-    let server_args = vec![identity.clone()];
+    let port = Arg::with_name("port")
+        .long("port")
+        .help("The port used for TCP")
+        .takes_value(true)
+        .default_value("2600");
+    let client_args = vec![metacommand.clone(), identity.clone(), l_portfwd, r_portfwd, port.clone(), command];
+    let server_args = vec![identity.clone(), port.clone()];
     App::new("oxy")
         .version(crate_version!())
         .author(crate_authors!())
@@ -58,7 +63,7 @@ pub fn create_app() -> App<'static, 'static> {
             SubCommand::with_name("serve-one")
                 .about("Accept a single TCP connection, then service it in the same process.")
                 .args(&server_args)
-                .arg(Arg::with_name("bind-address").index(1).default_value("0.0.0.0:2600")),
+                .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
         )
         .subcommand(
             SubCommand::with_name("reverse-server")
@@ -70,7 +75,7 @@ pub fn create_app() -> App<'static, 'static> {
             SubCommand::with_name("reverse-client")
                 .about("Bind a port and wait for a server to connect. Then, be a client.")
                 .args(&client_args)
-                .arg(Arg::with_name("bind-address").index(1).default_value("0.0.0.0:2601")),
+                .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
         )
         .subcommand(
             SubCommand::with_name("copy")
@@ -110,24 +115,16 @@ pub fn matches() -> &'static ArgMatches<'static> {
 }
 
 pub fn destination() -> String {
-    let mut dest = MATCHES.subcommand_matches(mode()).unwrap().value_of("destination").unwrap().to_string();
-    if !dest.contains(':') {
-        dest = format!("{}:2600", dest);
-    }
-    dest
+    MATCHES.subcommand_matches(mode()).unwrap().value_of("destination").unwrap().to_string()
 }
 
 pub fn bind_address() -> String {
-    let mut addr = MATCHES
+    MATCHES
         .subcommand_matches(mode())
         .unwrap()
         .value_of("bind-address")
-        .unwrap_or("0.0.0.0:2600")
-        .to_string();
-    if !addr.contains(':') {
-        addr = format!("{}:2600", addr);
-    }
-    addr
+        .unwrap_or("0.0.0.0")
+        .to_string()
 }
 
 pub fn perspective() -> EncryptionPerspective {

@@ -19,10 +19,12 @@ extern crate shlex;
 #[cfg(unix)]
 extern crate termion;
 extern crate textwrap;
+extern crate toml;
 extern crate transportation;
 
 mod arg;
 mod client;
+mod conf;
 mod copy;
 mod core;
 mod guide;
@@ -44,9 +46,11 @@ pub fn run() {
             std::process::exit(1);
         }
     }
-    trace!("Oxy starting");
+    debug!("Oxy starting");
     arg::process();
-    trace!("Args processed");
+    debug!("Args processed");
+    conf::init();
+    debug!("Conf processed");
     keys::init();
     match arg::mode().as_str() {
         "client" => client::run(),

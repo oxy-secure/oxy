@@ -42,7 +42,7 @@ impl Server {
     }
 
     fn init(&self) {
-        let knock_port = ::keys::knock_port();
+        let knock_port = ::keys::knock_port(None);
         info!("Listening for knocks on port {}", knock_port);
         let bind_addr = format!("[::]:{}", knock_port).parse().unwrap();
         let mut knock_listener = UdpSocket::bind(&bind_addr);
@@ -105,20 +105,30 @@ impl Server {
         !self.i.open_knocks.borrow().is_empty()
     }
 
+    fn bind_tcp(&self) -> Option<TcpListener> {
+        let port = ::arg::matches().value_of("port").unwrap();
+        let bind_addr = format!("[::]:{}", port).parse().unwrap();
+        let mut listener = TcpListener::bind(&bind_addr);
+        if listener.is_err() {
+            let bind_addr = format!("0.0.0.0:{}", port).parse().unwrap();
+            listener = TcpListener::bind(&bind_addr);
+            if listener.is_err() {
+                return None;
+            }
+            return listener.ok();
+        }
+        return listener.ok();
+    }
+
     fn refresh_tcp(&self) {
         if self.has_pending_knocks() {
             if self.i.tcp_listener.borrow().is_some() {
                 return;
             }
-            let bind_addr = "[::]:2600".parse().unwrap();
-            let mut listener = TcpListener::bind(&bind_addr);
-            if listener.is_err() {
-                let bind_addr = "0.0.0.0:2600".parse().unwrap();
-                listener = TcpListener::bind(&bind_addr);
-                if listener.is_err() {
-                    warn!("Failed to bind tcp listener: {:?}", listener);
-                    return;
-                }
+            let listener = self.bind_tcp();
+            if listener.is_none() {
+                warn!("Failed to bind TCP listener");
+                return;
             }
             let listener = listener.unwrap();
             let proxy = self.clone();
@@ -158,7 +168,7 @@ impl Server {
     }
 
     fn consider_knock(&self, knock_data: &[u8], ip: IpAddr) {
-        if ::keys::verify_knock(knock_data) {
+        if ::keys::verify_knock(None, knock_data) {
             info!("Accepted knock from {:?}", ip);
             if self.i.open_knocks.borrow().len() < 1000 {
                 self.i.open_knocks.borrow_mut().push((Instant::now(), ip));

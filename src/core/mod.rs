@@ -39,6 +39,7 @@ pub struct TransferOut {
 pub struct OxyInternal {
     naked_transport: RefCell<Option<MessageTransport>>,
     underlying_transport: RefCell<Option<ProtocolTransport>>,
+    peer_name: RefCell<Option<String>>,
     ui: RefCell<Option<Ui>>,
     outgoing_ticker: RefCell<u64>,
     incoming_ticker: RefCell<u64>,
@@ -84,6 +85,7 @@ impl Oxy {
         let internal = OxyInternal {
             naked_transport: RefCell::new(Some(mt)),
             underlying_transport: RefCell::new(None),
+            peer_name: RefCell::new(None),
             ui: RefCell::new(None),
             outgoing_ticker: RefCell::new(0),
             incoming_ticker: RefCell::new(0),
@@ -116,7 +118,14 @@ impl Oxy {
             .as_mut()
             .unwrap()
             .set_notify(Rc::new(move || proxy.notify_naked()));
+        let y = x.clone();
+        transportation::set_timeout(Rc::new(move || y.launch()), Duration::from_secs(0));
         x
+    }
+
+    pub fn set_peer_name(&self, name: &str) {
+        trace!("Setting peer name to {:?}", name);
+        *self.internal.peer_name.borrow_mut() = Some(name.to_string());
     }
 
     pub fn set_daemon(&self) {
@@ -169,7 +178,7 @@ impl Oxy {
         *self.internal.arg.borrow_mut() = OxyArg::create(args);
     }
 
-    pub fn soft_launch(&self) {
+    fn launch(&self) {
         if *self.internal.launched.borrow() {
             panic!("Attempted to launch an Oxy instance twice.");
         }
@@ -182,14 +191,9 @@ impl Oxy {
         }
     }
 
-    pub fn launch(&self) -> ! {
-        self.soft_launch();
-        transportation::run();
-    }
-
     pub fn run<T: Into<BufferedTransport>>(transport: T) -> ! {
-        let oxy = Oxy::create(transport);
-        oxy.launch();
+        Oxy::create(transport);
+        transportation::run();
     }
 
     pub fn send(&self, message: OxyMessage) -> u64 {
@@ -378,7 +382,8 @@ impl Oxy {
             _ => panic!(),
         };
         let mut key = self.internal.kex_data.borrow_mut().keymaterial.as_ref().unwrap().to_vec();
-        key.extend(keys::static_key());
+        let peer = self.internal.peer_name.borrow().clone();
+        key.extend(keys::static_key(peer.as_ref().map(|x| &**x)));
         let et = EncryptedTransport::create(bt, self.perspective(), &key);
         let pt = ProtocolTransport::create(et);
         let proxy = self.clone();

@@ -66,6 +66,7 @@ impl CopyManager {
         }
         let connection = client::connect(peer);
         connection.set_daemon();
+        connection.set_peer_name(peer);
         let proxy = self.clone();
         connection.set_post_auth_hook(Rc::new(move || {
             proxy.post_auth_hook();

@@ -32,7 +32,9 @@ pub(super) enum NakedState {
 
 impl Oxy {
     pub(super) fn advertise_client_key(&self) {
-        let key = keys::asymmetric_key();
+        let peer_name = self.internal.peer_name.borrow().clone();
+        trace!("x Peer name: {:?}", peer_name);
+        let key = keys::asymmetric_key(peer_name.as_ref().map(|x| &**x));
         let mut pubkey: Vec<u8> = key.public_key_bytes().to_vec();
         pubkey.insert(0, 0);
         self.send_naked(&pubkey);
@@ -66,7 +68,8 @@ impl Oxy {
                 if let Some(mut msg) = self.recv_naked() {
                     let version_indicator = msg.remove(0);
                     assert!(version_indicator == 0);
-                    if !keys::validate_peer_public_key(&msg) {
+                    let peer = self.internal.peer_name.borrow().clone();
+                    if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
                         panic!("Incorrect client key");
                     }
                     debug!("Accepted client key {:?}", BASE32_NOPAD.encode(&msg));
@@ -97,7 +100,8 @@ impl Oxy {
                     ).unwrap();
                     ::std::mem::drop(kex_data);
                     let ephemeral = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
-                    let server_key = keys::asymmetric_key();
+                    let peer_name = self.internal.peer_name.borrow().clone();
+                    let server_key = keys::asymmetric_key(peer_name.as_ref().map(|x| &**x));
                     let mut public_key_message: Vec<u8> = server_key.public_key_bytes().to_vec();
                     public_key_message.insert(0, 0);
                     self.send_naked(&public_key_message);
@@ -126,7 +130,8 @@ impl Oxy {
                     let version_indicator = msg.remove(0);
                     assert!(version_indicator == 0);
                     debug!("Host key: {}", BASE32_NOPAD.encode(&msg));
-                    if !keys::validate_peer_public_key(&msg) {
+                    let peer = self.internal.peer_name.borrow().clone();
+                    if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
                         panic!("Invalid host key!");
                     }
                     self.internal.kex_data.borrow_mut().server_key = Some(msg);
