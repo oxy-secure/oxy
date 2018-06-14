@@ -144,7 +144,7 @@ impl Ui {
         terminal_size().unwrap()
     }
 
-    pub fn recv(&self) -> Option<UiMessage> {
+    crate fn recv(&self) -> Option<UiMessage> {
         if self.messages.borrow_mut().len() == 0 {
             return None;
         }
@@ -254,7 +254,7 @@ impl Notifies for Ui {
 }
 
 #[derive(Clone, Debug)]
-pub enum UiMessage {
+crate enum UiMessage {
     MetaCommand { parts: Vec<String> },
     RawInput { input: Vec<u8> },
 }

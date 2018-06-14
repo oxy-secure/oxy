@@ -1,4 +1,4 @@
-use arg::{self, perspective};
+use crate::arg::{self, perspective};
 use byteorder::{self, ByteOrder};
 use data_encoding;
 use std::time::UNIX_EPOCH;
@@ -19,7 +19,7 @@ fn identity_bytes_initializer() -> Vec<u8> {
     if let Some(identity) = arg::matches().value_of("identity") {
         return data_encoding::BASE32_NOPAD.decode(identity.as_bytes()).unwrap();
     }
-    if let Some(identity) = ::conf::identity() {
+    if let Some(identity) = crate::conf::identity() {
         return data_encoding::BASE32_NOPAD.decode(identity.as_bytes()).unwrap();
     }
     if arg::mode() == "copy" {
@@ -54,7 +54,7 @@ pub fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
     if peer.is_none() {
         return IDENTITY_BYTES.to_vec();
     }
-    let id = ::conf::client_identity_for_peer(peer.unwrap());
+    let id = crate::conf::client_identity_for_peer(peer.unwrap());
     if id.is_none() {
         return IDENTITY_BYTES.to_vec();
     }

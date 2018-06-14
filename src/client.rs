@@ -1,11 +1,11 @@
-use arg;
-use core::Oxy;
-use keys;
+use crate::arg;
+use crate::core::Oxy;
+use crate::keys;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use transportation;
 
 pub fn knock(peer: &str) {
-    let destinations = ::conf::locate_destination(peer);
+    let destinations = crate::conf::locate_destination(peer);
     let port = keys::knock_port(Some(peer));
     if destinations.is_empty() {
         error!("Failed to resolve {:?}", peer);
@@ -35,7 +35,7 @@ pub fn run() {
 
 pub fn connect(destination: &str) -> Oxy {
     knock(destination);
-    let destinations = ::conf::locate_destination(destination);
+    let destinations = crate::conf::locate_destination(destination);
     let stream = TcpStream::connect(&destinations[..]);
     if stream.is_err() {
         error!("Connection to {} failed: {:?}", destination, stream);

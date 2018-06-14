@@ -1,9 +1,9 @@
 use super::{PortBind, PortStream};
-use arg::perspective;
-use core::Oxy;
-use message::OxyMessage::{self, *};
+use crate::arg::perspective;
+use crate::core::Oxy;
+use crate::message::OxyMessage::{self, *};
 #[cfg(unix)]
-use pty::Pty;
+use crate::pty::Pty;
 use std::{
     cell::RefCell, fs::{read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
 };
@@ -14,7 +14,7 @@ use transportation::{
     Notifies,
 };
 #[cfg(unix)]
-use tuntap::{TunTap, TunTapType};
+use crate::tuntap::{TunTap, TunTapType};
 
 impl Oxy {
     fn dispatch_watchers(&self, message: &OxyMessage, message_number: u64) {

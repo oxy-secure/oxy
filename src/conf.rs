@@ -106,7 +106,7 @@ pub fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
 
 pub fn client_identity() -> Option<&'static str> {
     debug!("Trying to load a client identity");
-    client_identity_for_peer(&::arg::destination())
+    client_identity_for_peer(&crate::arg::destination())
 }
 
 fn default_port(dest: &str) -> Vec<SocketAddr> {
@@ -167,7 +167,7 @@ pub fn locate_destination(dest: &str) -> Vec<SocketAddr> {
 }
 
 pub fn identity() -> Option<&'static str> {
-    match ::arg::mode().as_str() {
+    match crate::arg::mode().as_str() {
         "server" => server_identity(),
         "client" => client_identity(),
         _ => None,

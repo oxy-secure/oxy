@@ -1,5 +1,5 @@
-use core::Oxy;
-use reexec::reexec;
+use crate::core::Oxy;
+use crate::reexec::reexec;
 use std::{
     cell::RefCell, net::IpAddr, rc::Rc, time::{Duration, Instant},
 };
@@ -42,7 +42,7 @@ impl Server {
     }
 
     fn init(&self) {
-        let knock_port = ::keys::knock_port(None);
+        let knock_port = crate::keys::knock_port(None);
         info!("Listening for knocks on port {}", knock_port);
         let bind_addr = format!("[::]:{}", knock_port).parse().unwrap();
         let mut knock_listener = UdpSocket::bind(&bind_addr);
@@ -106,7 +106,7 @@ impl Server {
     }
 
     fn bind_tcp(&self) -> Option<TcpListener> {
-        let port = ::arg::matches().value_of("port").unwrap();
+        let port = crate::arg::matches().value_of("port").unwrap();
         let bind_addr = format!("[::]:{}", port).parse().unwrap();
         let mut listener = TcpListener::bind(&bind_addr);
         if listener.is_err() {
@@ -168,7 +168,7 @@ impl Server {
     }
 
     fn consider_knock(&self, knock_data: &[u8], ip: IpAddr) {
-        if ::keys::verify_knock(None, knock_data) {
+        if crate::keys::verify_knock(None, knock_data) {
             info!("Accepted knock from {:?}", ip);
             if self.i.open_knocks.borrow().len() < 1000 {
                 self.i.open_knocks.borrow_mut().push((Instant::now(), ip));
@@ -202,7 +202,7 @@ pub fn serve_one() {
 }
 
 pub fn reverse_server() {
-    let stream = ::std::net::TcpStream::connect(&::arg::destination()).unwrap();
+    let stream = ::std::net::TcpStream::connect(&crate::arg::destination()).unwrap();
     trace!("Connected");
     Oxy::run(stream);
 }
@@ -216,7 +216,7 @@ fn fork_and_handle(stream: TcpStream) {
         let fd2 = dup(fd).unwrap(); // We do this to clear O_CLOEXEC. It'd be nicer if F_SETFL could clear
                                     // O_CLOEXEC, but it can't~
 
-        let identity = ::keys::identity_string();
+        let identity = crate::keys::identity_string();
         reexec(&["reexec", &format!("--fd={}", fd2), &format!("--identity={}", identity)]);
         close(fd).unwrap();
         close(fd2).unwrap();

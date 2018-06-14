@@ -1,6 +1,6 @@
-use client;
-use core::Oxy;
-use message::OxyMessage::*;
+use crate::client;
+use crate::core::Oxy;
+use crate::message::OxyMessage::*;
 use std::{
     cell::RefCell, collections::HashMap, fs::{metadata, read_dir, File}, io::{Read, Write}, path::PathBuf, rc::Rc,
 };
@@ -37,7 +37,7 @@ impl CopyManager {
 
     fn init(&self) {
         *self.i.progress.borrow_mut() = 1001;
-        let mut locations: Vec<String> = ::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
+        let mut locations: Vec<String> = crate::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
         if locations.len() < 2 {
             error!("Must provide at least two locations (a source and a destination)");
             ::std::process::exit(1);

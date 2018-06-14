@@ -4,25 +4,35 @@ mod metacommands;
 mod scoped_arg;
 
 use self::{
-    kex::{KexData, NakedState}, scoped_arg::OxyArg,
+    kex::{KexData, NakedState},
+    scoped_arg::OxyArg,
 };
-use arg;
 use byteorder::{self, ByteOrder};
-use keys;
-use message::OxyMessage::{self, *};
 #[cfg(unix)]
-use pty::Pty;
+use crate::pty::Pty;
+#[cfg(unix)]
+use crate::tuntap::TunTap;
+use crate::{
+    arg, keys,
+    message::OxyMessage::{self, *},
+    ui::Ui,
+};
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::File, io::Read, rc::Rc, time::{Duration, Instant},
+    cell::RefCell,
+    collections::HashMap,
+    fs::File,
+    io::Read,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
-    Notifiable, Notifies, ProtocolTransport,
+    self,
+    mio::net::TcpListener,
+    set_timeout, BufferedTransport, EncryptedTransport,
+    EncryptionPerspective::{Alice, Bob},
+    MessageTransport, Notifiable, Notifies, ProtocolTransport,
 };
-#[cfg(unix)]
-use tuntap::TunTap;
-use ui::Ui;
 
 #[derive(Clone)]
 pub struct Oxy {
@@ -57,7 +67,7 @@ pub struct OxyInternal {
     response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
-    post_auth_hook: RefCell<Option<Rc<Fn() -> ()>>>,
+    post_auth_hook: RefCell<Option<Rc<dyn Fn() -> ()>>>,
     send_hooks: RefCell<Vec<Rc<Fn() -> bool>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
@@ -238,7 +248,7 @@ impl Oxy {
     }
 
     fn notify_ui(&self) {
-        use ui::UiMessage::*;
+        use crate::ui::UiMessage::*;
         while let Some(msg) = self.internal.ui.borrow_mut().as_mut().unwrap().recv() {
             match msg {
                 MetaCommand { parts } => {
@@ -540,7 +550,7 @@ impl Oxy {
             if let Some(x) = self.internal.ui.borrow_mut().as_ref() {
                 x.cooked()
             };
-            ::ui::cleanup();
+            crate::ui::cleanup();
 
             if self.internal.pty.borrow().is_some() {
                 use nix::sys::signal::{kill, Signal::*};

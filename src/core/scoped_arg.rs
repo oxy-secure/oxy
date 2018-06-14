@@ -7,7 +7,7 @@ pub(crate) struct OxyArg {
 
 impl OxyArg {
     pub fn create(args: Vec<String>) -> OxyArg {
-        let app = ::arg::create_app();
+        let app = crate::arg::create_app();
         let matches = app.get_matches_from(&args);
         OxyArg { matches }
     }

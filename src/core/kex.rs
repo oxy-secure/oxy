@@ -1,7 +1,7 @@
 use byteorder::{self, ByteOrder};
-use core::Oxy;
+use crate::core::Oxy;
 use data_encoding::BASE32_NOPAD;
-use keys;
+use crate::keys;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transportation::{
     ring::{

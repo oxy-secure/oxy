@@ -1,5 +1,5 @@
 use byteorder::{self, ByteOrder};
-use core::Oxy;
+use crate::core::Oxy;
 use libc::ioctl;
 use nix::{
     errno::{errno, Errno}, fcntl::{open, OFlag}, sys::stat::Mode, unistd::{read, write},

@@ -1,3 +1,7 @@
+#![feature(rust_2018_preview)]
+#![feature(rust_2018_idioms)]
+#![warn(rust_2018_idioms)]
+
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -66,4 +70,4 @@ pub fn run() {
 }
 
 // Reexports:
-pub use core::Oxy;
+pub use crate::core::Oxy;
