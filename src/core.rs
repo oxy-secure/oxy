@@ -17,6 +17,8 @@ use crate::{
     message::OxyMessage::{self, *},
     ui::Ui,
 };
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use shlex;
 use std::{
     cell::RefCell,
@@ -39,14 +41,14 @@ pub struct Oxy {
     internal: Rc<OxyInternal>,
 }
 
-pub struct TransferOut {
+crate struct TransferOut {
     reference:        u64,
     file:             File,
     current_position: u64,
     cutoff_position:  u64,
 }
 
-pub struct OxyInternal {
+crate struct OxyInternal {
     naked_transport: RefCell<Option<MessageTransport>>,
     underlying_transport: RefCell<Option<ProtocolTransport>>,
     peer_name: RefCell<Option<String>>,
@@ -64,11 +66,11 @@ pub struct OxyInternal {
     last_message_seen: RefCell<Instant>,
     arg: RefCell<OxyArg>,
     launched: RefCell<bool>,
-    response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
+    response_watchers: RefCell<Vec<Rc<dyn Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
     post_auth_hook: RefCell<Option<Rc<dyn Fn() -> ()>>>,
-    send_hooks: RefCell<Vec<Rc<Fn() -> bool>>>,
+    send_hooks: RefCell<Vec<Rc<dyn Fn() -> bool>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -142,11 +144,11 @@ impl Oxy {
         *self.internal.is_daemon.borrow_mut() = true;
     }
 
-    pub fn set_post_auth_hook(&self, callback: Rc<Fn() -> ()>) {
+    pub fn set_post_auth_hook(&self, callback: Rc<dyn Fn() -> ()>) {
         *self.internal.post_auth_hook.borrow_mut() = Some(callback);
     }
 
-    pub fn push_send_hook(&self, callback: Rc<Fn() -> bool>) {
+    pub fn push_send_hook(&self, callback: Rc<dyn Fn() -> bool>) {
         self.internal.send_hooks.borrow_mut().push(callback);
     }
 
@@ -560,7 +562,7 @@ impl Oxy {
         ::std::process::exit(status);
     }
 
-    pub fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
+    pub fn watch(&self, callback: Rc<dyn Fn(&OxyMessage, u64) -> bool>) {
         if self.internal.response_watchers.borrow().len() >= 10 {
             debug!("Potential response watcher accumulation detected.");
         }

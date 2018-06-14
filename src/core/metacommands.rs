@@ -1,15 +1,24 @@
 use clap::{self, App, AppSettings, Arg, SubCommand};
-use crate::core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy};
-use crate::message::OxyMessage::*;
-use num;
-use std::{
-    cell::RefCell, fs::{metadata, read_dir, File}, io::Write, path::PathBuf, rc::Rc,
-};
-use transportation::{
-    self, mio::{net::TcpListener, PollOpt, Ready, Token},
-};
 #[cfg(unix)]
 use crate::tuntap::{TunTap, TunTapType};
+use crate::{
+    core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy},
+    message::OxyMessage::*,
+};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
+use num;
+use std::{
+    cell::RefCell,
+    fs::{metadata, read_dir, File},
+    io::Write,
+    path::PathBuf,
+    rc::Rc,
+};
+use transportation::{
+    self,
+    mio::{net::TcpListener, PollOpt, Ready, Token},
+};
 
 fn create_app() -> App<'static, 'static> {
     let subcommands = vec![

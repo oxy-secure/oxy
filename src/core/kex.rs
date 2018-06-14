@@ -1,22 +1,26 @@
 use byteorder::{self, ByteOrder};
-use crate::core::Oxy;
+use crate::{core::Oxy, keys};
 use data_encoding::BASE32_NOPAD;
-use crate::keys;
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::time::{SystemTime, UNIX_EPOCH};
 use transportation::{
     ring::{
-        agreement::{self, agree_ephemeral, EphemeralPrivateKey, X25519}, signature,
-    }, untrusted::Input, RNG,
+        agreement::{self, agree_ephemeral, EphemeralPrivateKey, X25519},
+        signature,
+    },
+    untrusted::Input,
+    RNG,
 };
 
 #[derive(Default)]
 pub(super) struct KexData {
-    pub connection_client_key: Option<Vec<u8>>,
-    pub client_key_evidence:   Option<Vec<u8>>,
-    pub my_ephemeral_key:      Option<EphemeralPrivateKey>,
-    pub keymaterial:           Option<Vec<u8>>,
-    pub server_key:            Option<Vec<u8>>,
-    pub server_ephemeral:      Option<Vec<u8>>,
+    crate connection_client_key: Option<Vec<u8>>,
+    crate client_key_evidence:   Option<Vec<u8>>,
+    crate my_ephemeral_key:      Option<EphemeralPrivateKey>,
+    crate keymaterial:           Option<Vec<u8>>,
+    crate server_key:            Option<Vec<u8>>,
+    crate server_ephemeral:      Option<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]

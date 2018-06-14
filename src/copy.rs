@@ -1,14 +1,19 @@
-use crate::client;
-use crate::core::Oxy;
-use crate::message::OxyMessage::*;
+use crate::{client, core::Oxy, message::OxyMessage::*};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::{
-    cell::RefCell, collections::HashMap, fs::{metadata, read_dir, File}, io::{Read, Write}, path::PathBuf, rc::Rc,
+    cell::RefCell,
+    collections::HashMap,
+    fs::{metadata, read_dir, File},
+    io::{Read, Write},
+    path::PathBuf,
+    rc::Rc,
 };
 use transportation;
 
 const PEER_TO_PEER_BUFFER_AMT: u64 = 1024 * 1024;
 
-pub fn run() -> ! {
+crate fn run() -> ! {
     CopyManager::create();
     transportation::run();
 }

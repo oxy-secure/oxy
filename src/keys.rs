@@ -1,9 +1,15 @@
-use crate::arg::{self, perspective};
 use byteorder::{self, ByteOrder};
+use crate::arg::{self, perspective};
 use data_encoding;
+use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::time::UNIX_EPOCH;
 use transportation::{
-    self, ring::{self, rand::SecureRandom, signature::Ed25519KeyPair}, untrusted, EncryptionPerspective::Alice,
+    self,
+    ring::{self, rand::SecureRandom, signature::Ed25519KeyPair},
+    untrusted,
+    EncryptionPerspective::Alice,
 };
 
 use parking_lot::Mutex;
@@ -42,11 +48,11 @@ fn identity_bytes_initializer() -> Vec<u8> {
     bytes
 }
 
-pub fn identity_string() -> String {
+crate fn identity_string() -> String {
     data_encoding::BASE32_NOPAD.encode(&*IDENTITY_BYTES)
 }
 
-pub fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
+crate fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
     trace!("get_peer_id for peer {:?}", peer);
     if arg::mode() == "copy" && peer.is_none() {
         panic!();
@@ -62,20 +68,20 @@ pub fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
     data_encoding::BASE32_NOPAD.decode(id.as_bytes()).unwrap().to_vec()
 }
 
-pub fn static_key(peer: Option<&str>) -> Vec<u8> {
+crate fn static_key(peer: Option<&str>) -> Vec<u8> {
     let id = get_peer_id(peer);
     id[12..24].to_vec()
 }
 
-pub fn knock_data(peer: Option<&str>) -> Vec<u8> {
+crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
     get_peer_id(peer)[24..].to_vec()
 }
 
-pub fn make_knock(peer: Option<&str>) -> Vec<u8> {
+crate fn make_knock(peer: Option<&str>) -> Vec<u8> {
     make_knock_internal(peer, 0, 0)
 }
 
-pub fn verify_knock(peer: Option<&str>, knock: &[u8]) -> bool {
+crate fn verify_knock(peer: Option<&str>, knock: &[u8]) -> bool {
     let c = make_knock_internal(peer, 0, KNOCK_ROTATION_TIME);
     let a = make_knock_internal(peer, 0, 0);
     let b = make_knock_internal(peer, KNOCK_ROTATION_TIME, 0);
@@ -111,7 +117,7 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
     result
 }
 
-pub fn knock_port(peer: Option<&str>) -> u16 {
+crate fn knock_port(peer: Option<&str>) -> u16 {
     let mut data = knock_data(peer).to_vec();
     let mut iter_count = 5;
     let result;
@@ -128,7 +134,7 @@ pub fn knock_port(peer: Option<&str>) -> u16 {
     result
 }
 
-pub fn validate_peer_public_key(key: &[u8], peer: Option<&str>) -> bool {
+crate fn validate_peer_public_key(key: &[u8], peer: Option<&str>) -> bool {
     let pubkey = asymmetric_key(peer);
     key == pubkey.public_key_bytes()
 }
@@ -140,12 +146,12 @@ fn asymmetric_key_from_seed(seed: &[u8]) -> Ed25519KeyPair {
     ring::signature::Ed25519KeyPair::from_seed_unchecked(bytes).unwrap()
 }
 
-pub fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
+crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
     let id = get_peer_id(peer);
     debug!("Using identity data: {:?}", id);
     asymmetric_key_from_seed(&id[..12])
 }
 
-pub fn init() {
+crate fn init() {
     ::lazy_static::initialize(&IDENTITY_BYTES);
 }

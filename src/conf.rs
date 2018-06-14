@@ -1,8 +1,15 @@
+use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::{
-    fs::File, io::Read, net::{SocketAddr, ToSocketAddrs}, str::FromStr,
+    fs::File,
+    io::Read,
+    net::{SocketAddr, ToSocketAddrs},
+    str::FromStr,
 };
 use toml::{
-    self, Value::{Array, Table},
+    self,
+    Value::{Array, Table},
 };
 
 lazy_static! {
@@ -15,7 +22,7 @@ struct Conf {
     client: Option<toml::Value>,
 }
 
-pub fn init() {
+crate fn init() {
     ::lazy_static::initialize(&CONF);
 }
 
@@ -70,14 +77,14 @@ impl Conf {
     }
 }
 
-pub fn server_identity() -> Option<&'static str> {
+crate fn server_identity() -> Option<&'static str> {
     match &CONF.server {
         Some(Table(table)) => table.get("identity").map(|x| x.as_str().expect("Identity is not a string?")),
         _ => None,
     }
 }
 
-pub fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
+crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
     debug!("Trying to load a client identity for {}", peer);
     match &CONF.client {
         Some(Table(table)) => {
@@ -104,7 +111,7 @@ pub fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
     }
 }
 
-pub fn client_identity() -> Option<&'static str> {
+crate fn client_identity() -> Option<&'static str> {
     debug!("Trying to load a client identity");
     client_identity_for_peer(&crate::arg::destination())
 }
@@ -135,7 +142,7 @@ fn port_part(dest: &str) -> Option<u16> {
     dest.splitn(2, ':').nth(1).unwrap().parse().ok()
 }
 
-pub fn locate_destination(dest: &str) -> Vec<SocketAddr> {
+crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
     match &CONF.client {
         Some(Table(table)) => {
             let servers = table.get("servers");
@@ -166,7 +173,7 @@ pub fn locate_destination(dest: &str) -> Vec<SocketAddr> {
     }
 }
 
-pub fn identity() -> Option<&'static str> {
+crate fn identity() -> Option<&'static str> {
     match crate::arg::mode().as_str() {
         "server" => server_identity(),
         "client" => client_identity(),

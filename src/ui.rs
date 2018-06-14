@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use shlex;
 use std::{cell::RefCell, fs::File, io::Write, rc::Rc};
 #[cfg(unix)]
@@ -9,8 +11,8 @@ use termion::{
 use transportation::{BufferedTransport, Notifiable, Notifies};
 
 #[derive(Clone)]
-pub struct Ui {
-    notify_hook:   Rc<RefCell<Option<Rc<Notifiable>>>>,
+crate struct Ui {
+    notify_hook:   Rc<RefCell<Option<Rc<dyn Notifiable>>>>,
     underlying:    BufferedTransport,
     messages:      Rc<RefCell<Vec<UiMessage>>>,
     platform:      Rc<RefCell<UiPlatformData>>,
@@ -26,7 +28,7 @@ struct UiPlatformData {
 struct UiPlatformData {}
 
 impl Ui {
-    pub fn create() -> Ui {
+    crate fn create() -> Ui {
         #[cfg(windows)]
         {
             unimplemented!();
@@ -57,7 +59,7 @@ impl Ui {
         }
     }
 
-    pub fn paint_progress_bar(&self, progress: u64) {
+    crate fn paint_progress_bar(&self, progress: u64) {
         #[cfg(unix)]
         {
             if progress == *self.prev_progress.borrow() {
@@ -99,7 +101,7 @@ impl Ui {
         }
     }
 
-    pub fn log_info(&self, message: &str) {
+    crate fn log_info(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
         info!("{}", message);
@@ -107,7 +109,7 @@ impl Ui {
         self.raw();
     }
 
-    pub fn log_debug(&self, message: &str) {
+    crate fn log_debug(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
         debug!("{}", message);
@@ -115,7 +117,7 @@ impl Ui {
         self.raw();
     }
 
-    pub fn log_warn(&self, message: &str) {
+    crate fn log_warn(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
         warn!("{}", message);
@@ -123,7 +125,7 @@ impl Ui {
         self.raw();
     }
 
-    pub fn pty_data(&self, data: &[u8]) {
+    crate fn pty_data(&self, data: &[u8]) {
         #[cfg(windows)]
         unimplemented!();
         #[cfg(unix)]
@@ -135,7 +137,7 @@ impl Ui {
         }
     }
 
-    pub fn pty_size(&self) -> (u16, u16) {
+    crate fn pty_size(&self) -> (u16, u16) {
         #[cfg(windows)]
         unimplemented!();
         // Maybe later we'll want to save space for other UI elements
@@ -152,7 +154,7 @@ impl Ui {
     }
 
     #[cfg(unix)]
-    pub fn cooked(&self) {
+    crate fn cooked(&self) {
         self.platform.borrow_mut().raw.take();
     }
 
@@ -191,7 +193,7 @@ impl Ui {
     }
 }
 
-pub fn cleanup() {
+crate fn cleanup() {
     #[cfg(unix)]
     unsafe {
         let mut bits: i32 = 0;
@@ -248,7 +250,7 @@ impl Notifiable for Ui {
 }
 
 impl Notifies for Ui {
-    fn set_notify(&self, callback: Rc<Notifiable>) {
+    fn set_notify(&self, callback: Rc<dyn Notifiable>) {
         *self.notify_hook.borrow_mut() = Some(callback);
     }
 }

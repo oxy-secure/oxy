@@ -1,30 +1,4 @@
 #![feature(rust_2018_preview)]
-#![feature(rust_2018_idioms)]
-#![warn(rust_2018_idioms)]
-
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate clap;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate serde_derive;
-extern crate byteorder;
-extern crate data_encoding;
-extern crate env_logger;
-#[cfg(unix)]
-extern crate libc;
-#[cfg(unix)]
-extern crate nix;
-extern crate num;
-extern crate parking_lot;
-extern crate shlex;
-#[cfg(unix)]
-extern crate termion;
-extern crate textwrap;
-extern crate toml;
-extern crate transportation;
 
 mod arg;
 mod client;
@@ -41,6 +15,9 @@ mod server;
 #[cfg(unix)]
 mod tuntap;
 mod ui;
+
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 
 pub fn run() {
     #[cfg(unix)]

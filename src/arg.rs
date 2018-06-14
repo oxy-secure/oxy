@@ -1,13 +1,14 @@
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{crate_authors, crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger;
+use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
 use std::env;
 use transportation::EncryptionPerspective;
 
 lazy_static! {
-    pub static ref MATCHES: ArgMatches<'static> = create_matches();
+    pub(crate) static ref MATCHES: ArgMatches<'static> = create_matches();
 }
 
-pub fn create_app() -> App<'static, 'static> {
+crate fn create_app() -> App<'static, 'static> {
     let metacommand = Arg::with_name("metacommand")
         .short("m")
         .long("metacommand")
@@ -90,7 +91,7 @@ fn create_matches() -> ArgMatches<'static> {
     create_app().get_matches()
 }
 
-pub fn batched_metacommands() -> Vec<String> {
+crate fn batched_metacommands() -> Vec<String> {
     let values = MATCHES.subcommand_matches(mode()).unwrap().values_of("metacommand");
     if values.is_none() {
         return Vec::new();
@@ -98,7 +99,7 @@ pub fn batched_metacommands() -> Vec<String> {
     values.unwrap().map(|x| x.to_string()).collect()
 }
 
-pub fn process() {
+crate fn process() {
     ::lazy_static::initialize(&MATCHES);
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "oxy=info");
@@ -106,19 +107,19 @@ pub fn process() {
     env_logger::try_init().ok();
 }
 
-pub fn mode() -> String {
+crate fn mode() -> String {
     MATCHES.subcommand_name().unwrap().to_string()
 }
 
-pub fn matches() -> &'static ArgMatches<'static> {
+crate fn matches() -> &'static ArgMatches<'static> {
     MATCHES.subcommand_matches(mode()).unwrap()
 }
 
-pub fn destination() -> String {
+crate fn destination() -> String {
     MATCHES.subcommand_matches(mode()).unwrap().value_of("destination").unwrap().to_string()
 }
 
-pub fn bind_address() -> String {
+crate fn bind_address() -> String {
     MATCHES
         .subcommand_matches(mode())
         .unwrap()
@@ -127,7 +128,7 @@ pub fn bind_address() -> String {
         .to_string()
 }
 
-pub fn perspective() -> EncryptionPerspective {
+crate fn perspective() -> EncryptionPerspective {
     use transportation::EncryptionPerspective::{Alice, Bob};
     match mode().as_str() {
         "reexec" => Bob,

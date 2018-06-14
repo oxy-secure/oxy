@@ -1,15 +1,21 @@
-use crate::core::Oxy;
-use crate::reexec::reexec;
+use crate::{core::Oxy, reexec::reexec};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::{
-    cell::RefCell, net::IpAddr, rc::Rc, time::{Duration, Instant},
+    cell::RefCell,
+    net::IpAddr,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::{
-        net::{TcpListener, TcpStream, UdpSocket}, PollOpt, Ready, Token,
+    self,
+    mio::{
+        net::{TcpListener, TcpStream, UdpSocket},
+        PollOpt, Ready, Token,
     },
 };
 
-pub fn run() -> ! {
+crate fn run() -> ! {
     Server::create();
     transportation::run();
 }
@@ -195,13 +201,13 @@ impl Server {
     }
 }
 
-pub fn serve_one() {
+crate fn serve_one() {
     let server = Server::create();
     server.set_serve_one();
     transportation::run();
 }
 
-pub fn reverse_server() {
+crate fn reverse_server() {
     let stream = ::std::net::TcpStream::connect(&crate::arg::destination()).unwrap();
     trace!("Connected");
     Oxy::run(stream);
