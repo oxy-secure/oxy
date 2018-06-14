@@ -1,14 +1,19 @@
-use client;
-use core::Oxy;
-use message::OxyMessage::*;
+use crate::{client, core::Oxy, message::OxyMessage::*};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::{
-    cell::RefCell, collections::HashMap, fs::{metadata, read_dir, File}, io::{Read, Write}, path::PathBuf, rc::Rc,
+    cell::RefCell,
+    collections::HashMap,
+    fs::{metadata, read_dir, File},
+    io::{Read, Write},
+    path::PathBuf,
+    rc::Rc,
 };
 use transportation;
 
 const PEER_TO_PEER_BUFFER_AMT: u64 = 1024 * 1024;
 
-pub fn run() -> ! {
+crate fn run() -> ! {
     CopyManager::create();
     transportation::run();
 }
@@ -37,7 +42,7 @@ impl CopyManager {
 
     fn init(&self) {
         *self.i.progress.borrow_mut() = 1001;
-        let mut locations: Vec<String> = ::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
+        let mut locations: Vec<String> = crate::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
         if locations.len() < 2 {
             error!("Must provide at least two locations (a source and a destination)");
             ::std::process::exit(1);
@@ -66,6 +71,7 @@ impl CopyManager {
         }
         let connection = client::connect(peer);
         connection.set_daemon();
+        connection.set_peer_name(peer);
         let proxy = self.clone();
         connection.set_post_auth_hook(Rc::new(move || {
             proxy.post_auth_hook();

@@ -1,15 +1,24 @@
 use clap::{self, App, AppSettings, Arg, SubCommand};
-use core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy};
-use message::OxyMessage::*;
+#[cfg(unix)]
+use crate::tuntap::{TunTap, TunTapType};
+use crate::{
+    core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy},
+    message::OxyMessage::*,
+};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use num;
 use std::{
-    cell::RefCell, fs::{metadata, read_dir, File}, io::Write, path::PathBuf, rc::Rc,
+    cell::RefCell,
+    fs::{metadata, read_dir, File},
+    io::Write,
+    path::PathBuf,
+    rc::Rc,
 };
 use transportation::{
-    self, mio::{net::TcpListener, PollOpt, Ready, Token},
+    self,
+    mio::{net::TcpListener, PollOpt, Ready, Token},
 };
-#[cfg(unix)]
-use tuntap::{TunTap, TunTapType};
 
 fn create_app() -> App<'static, 'static> {
     let subcommands = vec![
@@ -57,7 +66,7 @@ fn create_app() -> App<'static, 'static> {
             .arg(
                 Arg::with_name("command")
                     .index(1)
-                    .default_value(&::arg::matches().value_of("command").unwrap_or("bash")),
+                    .default_value(&crate::arg::matches().value_of("command").unwrap_or("bash")),
             ),
         SubCommand::with_name("sh")
             .about(

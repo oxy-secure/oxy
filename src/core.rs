@@ -4,41 +4,54 @@ mod metacommands;
 mod scoped_arg;
 
 use self::{
-    kex::{KexData, NakedState}, scoped_arg::OxyArg,
+    kex::{KexData, NakedState},
+    scoped_arg::OxyArg,
 };
-use arg;
 use byteorder::{self, ByteOrder};
-use keys;
-use message::OxyMessage::{self, *};
 #[cfg(unix)]
-use pty::Pty;
+use crate::pty::Pty;
+#[cfg(unix)]
+use crate::tuntap::TunTap;
+use crate::{
+    arg, keys,
+    message::OxyMessage::{self, *},
+    ui::Ui,
+};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use shlex;
 use std::{
-    cell::RefCell, collections::HashMap, fs::File, io::Read, rc::Rc, time::{Duration, Instant},
+    cell::RefCell,
+    collections::HashMap,
+    fs::File,
+    io::Read,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::net::TcpListener, set_timeout, BufferedTransport, EncryptedTransport, EncryptionPerspective::{Alice, Bob}, MessageTransport,
-    Notifiable, Notifies, ProtocolTransport,
+    self,
+    mio::net::TcpListener,
+    set_timeout, BufferedTransport, EncryptedTransport,
+    EncryptionPerspective::{Alice, Bob},
+    MessageTransport, Notifiable, Notifies, ProtocolTransport,
 };
-#[cfg(unix)]
-use tuntap::TunTap;
-use ui::Ui;
 
 #[derive(Clone)]
 pub struct Oxy {
     internal: Rc<OxyInternal>,
 }
 
-pub struct TransferOut {
+crate struct TransferOut {
     reference:        u64,
     file:             File,
     current_position: u64,
     cutoff_position:  u64,
 }
 
-pub struct OxyInternal {
+crate struct OxyInternal {
     naked_transport: RefCell<Option<MessageTransport>>,
     underlying_transport: RefCell<Option<ProtocolTransport>>,
+    peer_name: RefCell<Option<String>>,
     ui: RefCell<Option<Ui>>,
     outgoing_ticker: RefCell<u64>,
     incoming_ticker: RefCell<u64>,
@@ -53,11 +66,11 @@ pub struct OxyInternal {
     last_message_seen: RefCell<Instant>,
     arg: RefCell<OxyArg>,
     launched: RefCell<bool>,
-    response_watchers: RefCell<Vec<Rc<Fn(&OxyMessage, u64) -> bool>>>,
+    response_watchers: RefCell<Vec<Rc<dyn Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
-    post_auth_hook: RefCell<Option<Rc<Fn() -> ()>>>,
-    send_hooks: RefCell<Vec<Rc<Fn() -> bool>>>,
+    post_auth_hook: RefCell<Option<Rc<dyn Fn() -> ()>>>,
+    send_hooks: RefCell<Vec<Rc<dyn Fn() -> bool>>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -84,6 +97,7 @@ impl Oxy {
         let internal = OxyInternal {
             naked_transport: RefCell::new(Some(mt)),
             underlying_transport: RefCell::new(None),
+            peer_name: RefCell::new(None),
             ui: RefCell::new(None),
             outgoing_ticker: RefCell::new(0),
             incoming_ticker: RefCell::new(0),
@@ -116,18 +130,25 @@ impl Oxy {
             .as_mut()
             .unwrap()
             .set_notify(Rc::new(move || proxy.notify_naked()));
+        let y = x.clone();
+        transportation::set_timeout(Rc::new(move || y.launch()), Duration::from_secs(0));
         x
+    }
+
+    pub fn set_peer_name(&self, name: &str) {
+        trace!("Setting peer name to {:?}", name);
+        *self.internal.peer_name.borrow_mut() = Some(name.to_string());
     }
 
     pub fn set_daemon(&self) {
         *self.internal.is_daemon.borrow_mut() = true;
     }
 
-    pub fn set_post_auth_hook(&self, callback: Rc<Fn() -> ()>) {
+    pub fn set_post_auth_hook(&self, callback: Rc<dyn Fn() -> ()>) {
         *self.internal.post_auth_hook.borrow_mut() = Some(callback);
     }
 
-    pub fn push_send_hook(&self, callback: Rc<Fn() -> bool>) {
+    pub fn push_send_hook(&self, callback: Rc<dyn Fn() -> bool>) {
         self.internal.send_hooks.borrow_mut().push(callback);
     }
 
@@ -169,7 +190,7 @@ impl Oxy {
         *self.internal.arg.borrow_mut() = OxyArg::create(args);
     }
 
-    pub fn soft_launch(&self) {
+    fn launch(&self) {
         if *self.internal.launched.borrow() {
             panic!("Attempted to launch an Oxy instance twice.");
         }
@@ -182,14 +203,9 @@ impl Oxy {
         }
     }
 
-    pub fn launch(&self) -> ! {
-        self.soft_launch();
-        transportation::run();
-    }
-
     pub fn run<T: Into<BufferedTransport>>(transport: T) -> ! {
-        let oxy = Oxy::create(transport);
-        oxy.launch();
+        Oxy::create(transport);
+        transportation::run();
     }
 
     pub fn send(&self, message: OxyMessage) -> u64 {
@@ -234,7 +250,7 @@ impl Oxy {
     }
 
     fn notify_ui(&self) {
-        use ui::UiMessage::*;
+        use crate::ui::UiMessage::*;
         while let Some(msg) = self.internal.ui.borrow_mut().as_mut().unwrap().recv() {
             match msg {
                 MetaCommand { parts } => {
@@ -378,7 +394,8 @@ impl Oxy {
             _ => panic!(),
         };
         let mut key = self.internal.kex_data.borrow_mut().keymaterial.as_ref().unwrap().to_vec();
-        key.extend(keys::static_key());
+        let peer = self.internal.peer_name.borrow().clone();
+        key.extend(keys::static_key(peer.as_ref().map(|x| &**x)));
         let et = EncryptedTransport::create(bt, self.perspective(), &key);
         let pt = ProtocolTransport::create(et);
         let proxy = self.clone();
@@ -535,7 +552,7 @@ impl Oxy {
             if let Some(x) = self.internal.ui.borrow_mut().as_ref() {
                 x.cooked()
             };
-            ::ui::cleanup();
+            crate::ui::cleanup();
 
             if self.internal.pty.borrow().is_some() {
                 use nix::sys::signal::{kill, Signal::*};
@@ -545,7 +562,7 @@ impl Oxy {
         ::std::process::exit(status);
     }
 
-    pub fn watch(&self, callback: Rc<Fn(&OxyMessage, u64) -> bool>) {
+    pub fn watch(&self, callback: Rc<dyn Fn(&OxyMessage, u64) -> bool>) {
         if self.internal.response_watchers.borrow().len() >= 10 {
             debug!("Potential response watcher accumulation detected.");
         }

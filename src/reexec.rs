@@ -1,12 +1,14 @@
-use core::Oxy;
+use crate::core::Oxy;
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std;
 use transportation::BufferedTransport;
 
-pub fn run() {
+crate fn run() {
     #[cfg(unix)]
     {
         use std::os::unix::io::RawFd;
-        let fd = ::arg::matches().value_of("fd").unwrap().parse().unwrap();
+        let fd = crate::arg::matches().value_of("fd").unwrap().parse().unwrap();
         debug!("Reexec using fd {}", fd);
         let bt = <BufferedTransport as From<RawFd>>::from(fd);
         Oxy::run(bt);
@@ -16,13 +18,13 @@ pub fn run() {
 }
 
 #[cfg(unix)]
-pub fn is_suid() -> bool {
+crate fn is_suid() -> bool {
     let uid = ::nix::unistd::getuid();
     let euid = ::nix::unistd::geteuid();
     euid != uid
 }
 
-pub fn reexec(args: &[&str]) {
+crate fn reexec(args: &[&str]) {
     #[cfg(unix)]
     {
         if is_suid() {

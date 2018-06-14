@@ -1,20 +1,25 @@
 use libc::{ioctl, winsize, TIOCSWINSZ};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use nix::{
-    pty::openpty, unistd::{
-        close, dup2, execv, fork, setsid, ForkResult::{Child, Parent}, Pid,
+    pty::openpty,
+    unistd::{
+        close, dup2, execv, fork, setsid,
+        ForkResult::{Child, Parent},
+        Pid,
     },
 };
 use std::{ffi::CString, os::unix::io::RawFd, path::PathBuf};
 use transportation::BufferedTransport;
 
-pub struct Pty {
-    pub underlying: BufferedTransport,
-    pub fd:         RawFd,
-    pub child_pid:  Pid,
+crate struct Pty {
+    crate underlying: BufferedTransport,
+    crate fd:         RawFd,
+    crate child_pid:  Pid,
 }
 
 impl Pty {
-    pub fn forkpty(command: &str) -> Pty {
+    crate fn forkpty(command: &str) -> Pty {
         let result = openpty(None, None).expect("openpty failed");
         let parent_fd = result.master;
         let child_fd = result.slave;
@@ -48,7 +53,7 @@ impl Pty {
         }
     }
 
-    pub fn get_cwd(&self) -> String {
+    crate fn get_cwd(&self) -> String {
         use nix::fcntl::readlink;
         let mut buf = [0u8; 8192];
         let cwd: PathBuf = ".".into();
@@ -61,7 +66,7 @@ impl Pty {
             .unwrap_or(cwd)
     }
 
-    pub fn set_size(&self, w: u16, h: u16) {
+    crate fn set_size(&self, w: u16, h: u16) {
         let size = winsize {
             ws_row:    h,
             ws_col:    w,

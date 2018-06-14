@@ -1,12 +1,19 @@
 use byteorder::{self, ByteOrder};
-use core::Oxy;
+use crate::core::Oxy;
 use libc::ioctl;
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use nix::{
-    errno::{errno, Errno}, fcntl::{open, OFlag}, sys::stat::Mode, unistd::{read, write},
+    errno::{errno, Errno},
+    fcntl::{open, OFlag},
+    sys::stat::Mode,
+    unistd::{read, write},
 };
 use std::{cell::RefCell, os::unix::io::RawFd, rc::Rc};
 use transportation::{
-    self, mio::{unix::EventedFd, PollOpt, Ready, Token}, Notifiable, Notifies,
+    self,
+    mio::{unix::EventedFd, PollOpt, Ready, Token},
+    Notifiable, Notifies,
 };
 
 #[derive(Clone)]
@@ -15,7 +22,7 @@ pub(crate) struct TunTap {
     fd:               RawFd,
     reference_number: u64,
     oxy:              Oxy,
-    notify_hook:      Rc<RefCell<Option<Rc<Notifiable>>>>,
+    notify_hook:      Rc<RefCell<Option<Rc<dyn Notifiable>>>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -30,7 +37,7 @@ const IFF_NO_PI: u16 = 4096;
 const TUNSETIFF: u64 = 1074025674;
 
 impl TunTap {
-    pub fn create(mode: TunTapType, name: &str, reference_number: u64, oxy: Oxy) -> TunTap {
+    crate fn create(mode: TunTapType, name: &str, reference_number: u64, oxy: Oxy) -> TunTap {
         let fd = open("/dev/net/tun", OFlag::O_RDWR, Mode::empty()).unwrap();
         let mut buf = name.as_bytes().to_vec();
         assert!(buf.len() <= 16);
@@ -63,11 +70,11 @@ impl TunTap {
         result
     }
 
-    pub fn get_packets(&self) -> Vec<Vec<u8>> {
+    crate fn get_packets(&self) -> Vec<Vec<u8>> {
         self.packets.borrow_mut().split_off(0)
     }
 
-    pub fn send(&self, data: &[u8]) {
+    crate fn send(&self, data: &[u8]) {
         let result = write(self.fd, data).unwrap();
         assert!(result == data.len());
     }
@@ -85,7 +92,7 @@ impl Notifiable for TunTap {
 }
 
 impl Notifies for TunTap {
-    fn set_notify(&self, callback: Rc<Notifiable>) {
+    fn set_notify(&self, callback: Rc<dyn Notifiable>) {
         *self.notify_hook.borrow_mut() = Some(callback);
     }
 }

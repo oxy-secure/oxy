@@ -1,22 +1,26 @@
 use byteorder::{self, ByteOrder};
-use core::Oxy;
+use crate::{core::Oxy, keys};
 use data_encoding::BASE32_NOPAD;
-use keys;
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::time::{SystemTime, UNIX_EPOCH};
 use transportation::{
     ring::{
-        agreement::{self, agree_ephemeral, EphemeralPrivateKey, X25519}, signature,
-    }, untrusted::Input, RNG,
+        agreement::{self, agree_ephemeral, EphemeralPrivateKey, X25519},
+        signature,
+    },
+    untrusted::Input,
+    RNG,
 };
 
 #[derive(Default)]
 pub(super) struct KexData {
-    pub connection_client_key: Option<Vec<u8>>,
-    pub client_key_evidence:   Option<Vec<u8>>,
-    pub my_ephemeral_key:      Option<EphemeralPrivateKey>,
-    pub keymaterial:           Option<Vec<u8>>,
-    pub server_key:            Option<Vec<u8>>,
-    pub server_ephemeral:      Option<Vec<u8>>,
+    crate connection_client_key: Option<Vec<u8>>,
+    crate client_key_evidence:   Option<Vec<u8>>,
+    crate my_ephemeral_key:      Option<EphemeralPrivateKey>,
+    crate keymaterial:           Option<Vec<u8>>,
+    crate server_key:            Option<Vec<u8>>,
+    crate server_ephemeral:      Option<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -32,7 +36,9 @@ pub(super) enum NakedState {
 
 impl Oxy {
     pub(super) fn advertise_client_key(&self) {
-        let key = keys::asymmetric_key();
+        let peer_name = self.internal.peer_name.borrow().clone();
+        trace!("x Peer name: {:?}", peer_name);
+        let key = keys::asymmetric_key(peer_name.as_ref().map(|x| &**x));
         let mut pubkey: Vec<u8> = key.public_key_bytes().to_vec();
         pubkey.insert(0, 0);
         self.send_naked(&pubkey);
@@ -66,7 +72,8 @@ impl Oxy {
                 if let Some(mut msg) = self.recv_naked() {
                     let version_indicator = msg.remove(0);
                     assert!(version_indicator == 0);
-                    if !keys::validate_peer_public_key(&msg) {
+                    let peer = self.internal.peer_name.borrow().clone();
+                    if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
                         panic!("Incorrect client key");
                     }
                     debug!("Accepted client key {:?}", BASE32_NOPAD.encode(&msg));
@@ -97,7 +104,8 @@ impl Oxy {
                     ).unwrap();
                     ::std::mem::drop(kex_data);
                     let ephemeral = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
-                    let server_key = keys::asymmetric_key();
+                    let peer_name = self.internal.peer_name.borrow().clone();
+                    let server_key = keys::asymmetric_key(peer_name.as_ref().map(|x| &**x));
                     let mut public_key_message: Vec<u8> = server_key.public_key_bytes().to_vec();
                     public_key_message.insert(0, 0);
                     self.send_naked(&public_key_message);
@@ -126,7 +134,8 @@ impl Oxy {
                     let version_indicator = msg.remove(0);
                     assert!(version_indicator == 0);
                     debug!("Host key: {}", BASE32_NOPAD.encode(&msg));
-                    if !keys::validate_peer_public_key(&msg) {
+                    let peer = self.internal.peer_name.borrow().clone();
+                    if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
                         panic!("Invalid host key!");
                     }
                     self.internal.kex_data.borrow_mut().server_key = Some(msg);

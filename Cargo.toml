@@ -1,3 +1,5 @@
+cargo-features = ["edition"]
+
 [package]
 name = "oxy"
 version = "1.0.0-pre1"
@@ -7,6 +9,7 @@ description = "A security focused remote access tool."
 documentation = "https://oxy-secure.app/doc/oxy/"
 homepage = "https://oxy-secure.app"
 repository = "https://github.com/oxy-secure/oxy"
+edition = "2018"
 
 [dependencies]
 clap = "2.31"
@@ -26,7 +29,7 @@ rmp-serde = "0.13"
 nix = "0.11"
 libc = "0.2.40"
 data-encoding = "2.1.1"
-textwrap = { version = "0.10", features = ["term_size", "hyphenation"] }
+textwrap = { version = "0.10", features = ["term_size"] }
 parking_lot = { version = "0.5.5", features = ["nightly"] }
 
 [target.'cfg(unix)'.dependencies]

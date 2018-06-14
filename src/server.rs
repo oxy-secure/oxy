@@ -1,15 +1,21 @@
-use core::Oxy;
-use reexec::reexec;
+use crate::{core::Oxy, reexec::reexec};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::{
-    cell::RefCell, net::IpAddr, rc::Rc, time::{Duration, Instant},
+    cell::RefCell,
+    net::IpAddr,
+    rc::Rc,
+    time::{Duration, Instant},
 };
 use transportation::{
-    self, mio::{
-        net::{TcpListener, TcpStream, UdpSocket}, PollOpt, Ready, Token,
+    self,
+    mio::{
+        net::{TcpListener, TcpStream, UdpSocket},
+        PollOpt, Ready, Token,
     },
 };
 
-pub fn run() -> ! {
+crate fn run() -> ! {
     Server::create();
     transportation::run();
 }
@@ -42,7 +48,7 @@ impl Server {
     }
 
     fn init(&self) {
-        let knock_port = ::keys::knock_port();
+        let knock_port = crate::keys::knock_port(None);
         info!("Listening for knocks on port {}", knock_port);
         let bind_addr = format!("[::]:{}", knock_port).parse().unwrap();
         let mut knock_listener = UdpSocket::bind(&bind_addr);
@@ -105,20 +111,30 @@ impl Server {
         !self.i.open_knocks.borrow().is_empty()
     }
 
+    fn bind_tcp(&self) -> Option<TcpListener> {
+        let port = crate::arg::matches().value_of("port").unwrap();
+        let bind_addr = format!("[::]:{}", port).parse().unwrap();
+        let mut listener = TcpListener::bind(&bind_addr);
+        if listener.is_err() {
+            let bind_addr = format!("0.0.0.0:{}", port).parse().unwrap();
+            listener = TcpListener::bind(&bind_addr);
+            if listener.is_err() {
+                return None;
+            }
+            return listener.ok();
+        }
+        return listener.ok();
+    }
+
     fn refresh_tcp(&self) {
         if self.has_pending_knocks() {
             if self.i.tcp_listener.borrow().is_some() {
                 return;
             }
-            let bind_addr = "[::]:2600".parse().unwrap();
-            let mut listener = TcpListener::bind(&bind_addr);
-            if listener.is_err() {
-                let bind_addr = "0.0.0.0:2600".parse().unwrap();
-                listener = TcpListener::bind(&bind_addr);
-                if listener.is_err() {
-                    warn!("Failed to bind tcp listener: {:?}", listener);
-                    return;
-                }
+            let listener = self.bind_tcp();
+            if listener.is_none() {
+                warn!("Failed to bind TCP listener");
+                return;
             }
             let listener = listener.unwrap();
             let proxy = self.clone();
@@ -158,7 +174,7 @@ impl Server {
     }
 
     fn consider_knock(&self, knock_data: &[u8], ip: IpAddr) {
-        if ::keys::verify_knock(knock_data) {
+        if crate::keys::verify_knock(None, knock_data) {
             info!("Accepted knock from {:?}", ip);
             if self.i.open_knocks.borrow().len() < 1000 {
                 self.i.open_knocks.borrow_mut().push((Instant::now(), ip));
@@ -185,14 +201,14 @@ impl Server {
     }
 }
 
-pub fn serve_one() {
+crate fn serve_one() {
     let server = Server::create();
     server.set_serve_one();
     transportation::run();
 }
 
-pub fn reverse_server() {
-    let stream = ::std::net::TcpStream::connect(&::arg::destination()).unwrap();
+crate fn reverse_server() {
+    let stream = ::std::net::TcpStream::connect(&crate::arg::destination()).unwrap();
     trace!("Connected");
     Oxy::run(stream);
 }
@@ -206,7 +222,7 @@ fn fork_and_handle(stream: TcpStream) {
         let fd2 = dup(fd).unwrap(); // We do this to clear O_CLOEXEC. It'd be nicer if F_SETFL could clear
                                     // O_CLOEXEC, but it can't~
 
-        let identity = ::keys::identity_string();
+        let identity = crate::keys::identity_string();
         reexec(&["reexec", &format!("--fd={}", fd2), &format!("--identity={}", identity)]);
         close(fd).unwrap();
         close(fd2).unwrap();

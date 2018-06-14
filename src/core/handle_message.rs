@@ -1,20 +1,34 @@
 use super::{PortBind, PortStream};
-use arg::perspective;
-use core::Oxy;
-use message::OxyMessage::{self, *};
 #[cfg(unix)]
-use pty::Pty;
+use crate::pty::Pty;
+#[cfg(unix)]
+use crate::tuntap::{TunTap, TunTapType};
+use crate::{
+    arg::perspective,
+    core::Oxy,
+    message::OxyMessage::{self, *},
+};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::{
-    cell::RefCell, fs::{read_dir, symlink_metadata, File}, io::Write, net::ToSocketAddrs, path::PathBuf, rc::Rc, time::Instant,
+    cell::RefCell,
+    fs::{read_dir, symlink_metadata, File},
+    io::Write,
+    net::ToSocketAddrs,
+    path::PathBuf,
+    rc::Rc,
+    time::Instant,
 };
 use transportation::{
-    self, mio::{
-        net::{TcpListener, TcpStream}, PollOpt, Ready, Token,
-    }, BufferedTransport, EncryptionPerspective::{Alice, Bob},
+    self,
+    mio::{
+        net::{TcpListener, TcpStream},
+        PollOpt, Ready, Token,
+    },
+    BufferedTransport,
+    EncryptionPerspective::{Alice, Bob},
     Notifies,
 };
-#[cfg(unix)]
-use tuntap::{TunTap, TunTapType};
 
 impl Oxy {
     fn dispatch_watchers(&self, message: &OxyMessage, message_number: u64) {
@@ -160,7 +174,8 @@ impl Oxy {
                     File::create(path).map_err(|_| "Create file failed")?
                 } else {
                     use std::{
-                        fs::OpenOptions, io::{Seek, SeekFrom},
+                        fs::OpenOptions,
+                        io::{Seek, SeekFrom},
                     };
                     let mut file = OpenOptions::new().write(true).truncate(false).open(path).map_err(|_| "Open file failed")?;
                     file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();

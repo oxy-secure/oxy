@@ -118,6 +118,8 @@ fn copy_single_file() {
         .spawn()
         .unwrap();
     hold();
+    hold();
+    hold();
     server.kill().ok();
     client.kill().ok();
     assert_eq!(metadata("/etc/hosts").unwrap().len(), metadata("/tmp/hosts").unwrap().len());
