@@ -230,14 +230,15 @@ impl Oxy {
             }
             BindConnectionAccepted { reference } => {
                 assert!(perspective() == Alice);
-                let addr = self
+                let mut addr = self
                     .internal
                     .remote_bind_destinations
                     .borrow_mut()
                     .get(&reference)
-                    .unwrap()
-                    .parse()
-                    .unwrap();
+                    .ok_or("invalid_reference")?
+                    .to_socket_addrs()
+                    .map_err(|_| "failed to resolve destination")?;
+                let addr = addr.next().ok_or("Failed to resolve_destination")?;
                 let stream = TcpStream::connect(&addr).map_err(|_| "Forward-connection failed")?;
                 let bt = BufferedTransport::from(stream);
                 let stream = PortStream {
@@ -252,6 +253,23 @@ impl Oxy {
             }
             RemoteOpen { addr } => {
                 assert!(perspective() == Bob);
+                if addr.contains('/') {
+                    use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                    connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
+                    let bt = BufferedTransport::from(socket);
+                    let stream = PortStream {
+                        stream: bt,
+                        token:  message_number,
+                        oxy:    self.clone(),
+                        local:  false,
+                    };
+                    let stream2 = Rc::new(stream.clone());
+                    stream.stream.set_notify(stream2);
+                    self.internal.remote_streams.borrow_mut().insert(message_number, stream);
+                    return Ok(());
+                }
                 let dest = addr
                     .to_socket_addrs()
                     .map_err(|_| "Resolving address failed.")?
@@ -335,18 +353,31 @@ impl Oxy {
                     .put(&data[..]);
             }
             RemoteStreamClosed { reference } => {
-                let mut a = self.internal.remote_streams.borrow_mut();
-                let mut stream = &mut a.get_mut(&reference).ok_or("Invaid reference")?.stream;
-                stream.close();
+                self.internal
+                    .remote_streams
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .ok_or("Invalid reference")?
+                    .stream
+                    .close();
             }
             LocalStreamData { reference, data } => {
                 self.internal
                     .local_streams
                     .borrow_mut()
                     .get_mut(&reference)
-                    .unwrap()
+                    .ok_or("Invalid reference")?
                     .stream
                     .put(&data[..]);
+            }
+            LocalStreamClosed { reference } => {
+                self.internal
+                    .local_streams
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .ok_or("Invalid reference")?
+                    .stream
+                    .close();
             }
             #[cfg(unix)]
             TunnelRequest { tap, name } => {
