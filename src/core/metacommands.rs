@@ -15,9 +15,12 @@ use std::{
     path::PathBuf,
     rc::Rc,
 };
+#[cfg(unix)]
+use transportation::mio::unix::EventedFd;
 use transportation::{
     self,
     mio::{net::TcpListener, PollOpt, Ready, Token},
+    BufferedTransport, Notifies,
 };
 
 fn create_app() -> App<'static, 'static> {
@@ -103,8 +106,60 @@ fn create_app() -> App<'static, 'static> {
     app
 }
 
+fn preprocess_parts(mut parts: Vec<String>) -> Vec<String> {
+    // TODO: This whole thing is probably not the most robust way to accomplish
+    // what it does
+    if parts.is_empty() {
+        return parts;
+    }
+    if parts[0].is_empty() {
+        return parts;
+    }
+    {
+        let cmd: &mut String = parts.get_mut(0).unwrap();
+        if cmd.chars().next().unwrap() == '-' {
+            cmd.remove(0);
+        }
+    }
+    if parts[0].as_str() == "D" {
+        parts[0] = "socks".to_string();
+    }
+    if parts[0].as_str() == "L" || parts[0].as_str() == "R" {
+        if parts.len() > 2 {
+            return parts;
+        }
+        let spec = parts[1].clone(); // TODO:  This should be the first positional argument, we might have --flags
+        let parse_result: Option<u16> = spec.parse().ok();
+        if let Some(port) = parse_result {
+            return vec![parts[0].clone(), format!("localhost:{}", port), format!("localhost:{}", port)];
+        }
+        let colon_count = spec.matches(':').count();
+        if colon_count == 1 {
+            return vec![
+                parts[0].clone(),
+                spec.split(':').next().unwrap().to_string(),
+                spec.split(':').nth(1).unwrap().to_string(),
+            ];
+        }
+        if colon_count == 2 {
+            return vec![
+                parts[0].clone(),
+                spec.splitn(2, ':').next().unwrap().to_string(),
+                spec.splitn(2, ':').nth(1).unwrap().to_string(),
+            ];
+        }
+        if colon_count == 3 {
+            let first_half = spec.split(':').take(2).collect::<Vec<&str>>().join(":");
+            let second_half = spec.split(':').skip(2).collect::<Vec<&str>>().join(":");
+            return vec![parts[0].clone(), first_half, second_half];
+        }
+    }
+    parts
+}
+
 impl Oxy {
-    pub(super) fn handle_metacommand(&self, parts: Vec<String>) {
+    crate fn handle_metacommand(&self, parts: Vec<String>) {
+        let parts = preprocess_parts(parts);
         let matches = create_app().get_matches_from_safe(parts.clone());
         match matches {
             Err(clap::Error { message, .. }) => {
@@ -333,8 +388,67 @@ impl Oxy {
                     }
                     "L" => {
                         let remote_spec = matches.value_of("remote spec").unwrap().to_string();
-                        let local_spec = matches.value_of("local spec").unwrap().to_string();
-                        let bind = TcpListener::bind(&local_spec.parse().unwrap()).unwrap();
+                        let mut local_spec = matches.value_of("local spec").unwrap().to_string();
+                        if !local_spec.contains(':') && !local_spec.contains('/') {
+                            local_spec = format!("localhost:{}", local_spec);
+                        }
+                        if local_spec.contains('/') {
+                            use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                            let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None);
+                            if socket.is_err() {
+                                self.log_warn("Failed to create socket");
+                                return;
+                            }
+                            let socket = socket.unwrap();
+                            let sockaddr = SockAddr::new_unix(&PathBuf::from(local_spec.clone()));
+                            if sockaddr.is_err() {
+                                self.log_warn("Failed to parse socket address");
+                                return;
+                            }
+                            let sockaddr = sockaddr.unwrap();
+                            let bind_result = bind(socket, &sockaddr);
+                            if bind_result.is_err() {
+                                self.log_warn(&format!("Failed to bind {}", local_spec));
+                            }
+                            let listen_result = listen(socket, 10);
+                            if listen_result.is_err() {
+                                self.log_warn(&format!("Failed to listen {}", local_spec));
+                            }
+                            let token = Rc::new(RefCell::new(0));
+                            let token2 = token.clone();
+                            let proxy = self.clone();
+                            let token3 = transportation::insert_listener(Rc::new(move || {
+                                let token = token.clone();
+                                let peer = accept(socket);
+                                if peer.is_err() {
+                                    proxy.log_warn(&format!("Failed to accept connection on {}", local_spec));
+                                    transportation::remove_listener(*token.borrow());
+                                    return;
+                                }
+                                let peer = peer.unwrap();
+                                let stream_token = proxy.send(RemoteOpen {
+                                    addr: remote_spec.to_string(),
+                                });
+                                let bt = BufferedTransport::from(peer);
+                                let tracker = super::PortStream {
+                                    stream: bt,
+                                    token:  stream_token,
+                                    oxy:    proxy.clone(),
+                                    local:  true,
+                                };
+                                let tracker2 = Rc::new(tracker.clone());
+                                tracker.stream.set_notify(tracker2);
+                                proxy.internal.local_streams.borrow_mut().insert(stream_token, tracker);
+                            }));
+                            *token2.borrow_mut() = token3;
+                            transportation::borrow_poll(|poll| {
+                                poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
+                                    .unwrap()
+                            });
+                            return;
+                        }
+                        let bind = ::std::net::TcpListener::bind(&local_spec).unwrap();
+                        let bind = TcpListener::from_std(bind).unwrap();
                         let token_holder = Rc::new(RefCell::new(0));
                         let token_holder2 = token_holder.clone();
                         let proxy = self.clone();
@@ -380,8 +494,12 @@ impl Oxy {
                         self.internal.tuntaps.borrow_mut().insert(reference_number, tuntap);
                     }
                     "socks" => {
-                        let local_spec = matches.value_of("bind spec").unwrap();
-                        let bind = TcpListener::bind(&local_spec.parse().unwrap()).unwrap();
+                        let mut local_spec = matches.value_of("bind spec").unwrap().to_string();
+                        if !local_spec.contains(':') && !local_spec.contains('/') {
+                            local_spec = format!("localhost:{}", local_spec);
+                        }
+                        let bind = ::std::net::TcpListener::bind(local_spec).unwrap();
+                        let bind = TcpListener::from_std(bind).unwrap();
                         let proxy = SocksBindNotificationProxy {
                             oxy:   self.clone(),
                             token: Rc::new(RefCell::new(0)),

@@ -375,12 +375,20 @@ impl Oxy {
         debug!("Local stream notify for stream {}", token);
         let data = self.internal.local_streams.borrow_mut().get_mut(&token).unwrap().stream.take();
         self.send(RemoteStreamData { reference: token, data });
+        if self.internal.local_streams.borrow_mut().get_mut(&token).unwrap().stream.is_closed() {
+            self.send(RemoteStreamClosed { reference: token });
+            debug!("Stream closed");
+        }
     }
 
     fn notify_remote_stream(&self, token: u64) {
         debug!("Remote stream notify for stream {}", token);
         let data = self.internal.remote_streams.borrow_mut().get_mut(&token).unwrap().stream.take();
         self.send(LocalStreamData { reference: token, data });
+        if self.internal.remote_streams.borrow_mut().get_mut(&token).unwrap().stream.is_closed() {
+            debug!("Stream closed.");
+            self.send(LocalStreamClosed { reference: token });
+        }
     }
 
     fn upgrade_to_encrypted(&self) {
@@ -465,6 +473,12 @@ impl Oxy {
         for command in arg::batched_metacommands() {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
+        }
+        let ls = arg::matches().values_of("l_portfwd");
+        if ls.is_some() {
+            for l in ls.unwrap() {
+                self.handle_metacommand(vec!["L".to_string(), l.to_string()]);
+            }
         }
     }
 
