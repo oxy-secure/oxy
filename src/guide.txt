@@ -7,3 +7,25 @@ oxy client my.server.com --identity="the identity provided in the server output"
 Press F10 to get to an interactive command prompt from the client. You can start portforwards and transfer files from this prompt. Try "help" at this prompt.
 
 Press F12 to exit out of the client.
+
+Oxy checks for config files at $HOME/.config/oxy/server.conf and $HOME/.config/oxy/client.conf
+
+A sample server config is below:
+--------------------------------
+identity = "C5F2FZLCFQTXAZUBUREDACTED"
+--------------------------------
+
+A sample client config is below:
+--------------------------------
+[[servers]]
+name = "banana"
+host = "localhost"
+port = "2600"
+identity = "REDACTED"
+
+[[servers]]
+name = "kiwi"
+host = "192.168.0.12"
+port = "2600"
+identity = "REDACTED"
+---------------------------------

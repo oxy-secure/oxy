@@ -75,6 +75,27 @@ impl Oxy {
                     });
                 }
             }
+            PipeCommand { command } => {
+                self.bob_only();
+                use std::process::Stdio;
+                #[cfg(unix)]
+                let sh = "/bin/sh";
+                #[cfg(unix)]
+                let flag = "-c";
+                #[cfg(windows)]
+                let sh = "cmd.exe";
+                #[cfg(windows)]
+                let flag = "/c";
+                let result = ::std::process::Command::new(sh)
+                    .arg(flag)
+                    .arg(command)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .stdin(Stdio::piped())
+                    .spawn()
+                    .map_err(|x| format!("Spawn failed: {:?}", x))?;
+                self.internal.piped_children.borrow_mut().insert(message_number, result);
+            }
             #[cfg(unix)]
             PtyRequest { command } => {
                 self.bob_only();
