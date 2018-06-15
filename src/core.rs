@@ -48,11 +48,18 @@ crate struct TransferOut {
     cutoff_position:  u64,
 }
 
+crate struct PipeChild {
+    child: ::std::process::Child,
+    inp:   BufferedTransport,
+    out:   BufferedTransport,
+    err:   BufferedTransport,
+}
+
 crate struct OxyInternal {
     naked_transport: RefCell<Option<MessageTransport>>,
     underlying_transport: RefCell<Option<ProtocolTransport>>,
     peer_name: RefCell<Option<String>>,
-    piped_children: RefCell<HashMap<u64, ::std::process::Child>>,
+    piped_children: RefCell<HashMap<u64, PipeChild>>,
     ui: RefCell<Option<Ui>>,
     outgoing_ticker: RefCell<u64>,
     incoming_ticker: RefCell<u64>,
@@ -72,6 +79,8 @@ crate struct OxyInternal {
     is_daemon: RefCell<bool>,
     post_auth_hook: RefCell<Option<Rc<dyn Fn() -> ()>>>,
     send_hooks: RefCell<Vec<Rc<dyn Fn() -> bool>>>,
+    pipecmd_reference: RefCell<Option<u64>>,
+    stdin_bt: RefCell<Option<BufferedTransport>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -119,6 +128,8 @@ impl Oxy {
             is_daemon: RefCell::new(false),
             post_auth_hook: RefCell::new(None),
             send_hooks: RefCell::new(Vec::new()),
+            pipecmd_reference: RefCell::new(None),
+            stdin_bt: RefCell::new(None),
             #[cfg(unix)]
             pty: RefCell::new(None),
             #[cfg(unix)]
@@ -170,7 +181,7 @@ impl Oxy {
         }
         #[cfg(unix)]
         {
-            if !::termion::is_tty(&::std::io::stdout()) {
+            if !self.interactive() {
                 return;
             }
         }
@@ -373,6 +384,18 @@ impl Oxy {
         }
     }
 
+    fn notify_pipe_child(&self, token: u64) {
+        if let Some(child) = self.internal.piped_children.borrow_mut().get_mut(&token) {
+            let out = child.out.take();
+            let err = child.err.take();
+            self.send(PipeCommandOutput {
+                reference: token,
+                stdout:    out,
+                stderr:    err,
+            });
+        }
+    }
+
     fn notify_local_stream(&self, token: u64) {
         debug!("Local stream notify for stream {}", token);
         let data = self.internal.local_streams.borrow_mut().get_mut(&token).unwrap().stream.take();
@@ -446,9 +469,24 @@ impl Oxy {
                         _ => (),
                     };
                 }
+                let mut to_remove = Vec::new();
+                for (k, pipe_child) in self.internal.piped_children.borrow_mut().iter_mut() {
+                    if let Ok(result) = pipe_child.child.try_wait() {
+                        debug!("Pipe child exited. {:?}", result);
+                        to_remove.push(*k);
+                        self.send(PipeCommandExited { reference: *k });
+                    }
+                }
+                for k in to_remove {
+                    self.internal.piped_children.borrow_mut().remove(&k);
+                }
             }
             _ => (),
         };
+    }
+
+    fn interactive(&self) -> bool {
+        ::termion::is_tty(&::std::io::stdout()) && ::termion::is_tty(&::std::io::stdin())
     }
 
     fn do_post_auth(&self) {
@@ -457,8 +495,18 @@ impl Oxy {
             if !*self.internal.is_daemon.borrow() {
                 #[cfg(unix)]
                 {
-                    if ::termion::is_tty(&::std::io::stdout()) {
+                    if self.interactive() {
                         self.handle_metacommand(vec!["pty".to_string()]);
+                    } else {
+                        if let Some(cmd) = crate::arg::matches().value_of("command") {
+                            let stdin_bt = BufferedTransport::from(0);
+                            let proxy = self.clone();
+                            stdin_bt.set_notify(Rc::new(move || {
+                                proxy.notify_pipe_stdin();
+                            }));
+                            *self.internal.stdin_bt.borrow_mut() = Some(stdin_bt);
+                            self.handle_metacommand(vec!["pipe".to_string(), cmd.to_string()]);
+                        }
                     }
                 }
                 self.create_ui();
@@ -471,6 +519,28 @@ impl Oxy {
         if self.internal.post_auth_hook.borrow().is_some() {
             (self.internal.post_auth_hook.borrow_mut().take().unwrap())();
         }
+    }
+
+    fn notify_pipe_stdin(&self) {
+        if !self.has_write_space() {
+            return;
+        }
+        if self.internal.stdin_bt.borrow().is_none() {
+            return;
+        }
+        let closed = self.internal.stdin_bt.borrow_mut().as_mut().unwrap().is_closed();
+        let available2 = self.internal.stdin_bt.borrow_mut().as_mut().unwrap().available();
+        let available = if available2 > 8192 { 8192 } else { available2 };
+        if available == 0 && !closed {
+            return;
+        }
+        debug!("Processing stdin data {}", available);
+        let input = self.internal.stdin_bt.borrow_mut().as_mut().unwrap().take_chunk(available).unwrap();
+        if closed && available == 0 {
+            self.internal.stdin_bt.borrow_mut().take();
+        }
+        let reference = self.internal.pipecmd_reference.borrow_mut().unwrap();
+        self.send(PipeCommandInput { reference, input });
     }
 
     fn run_batched_metacommands(&self) {
@@ -623,6 +693,7 @@ impl Oxy {
             }
         }
         self.service_transfers();
+        self.notify_pipe_stdin();
         let mut orig_send_hooks = self.internal.send_hooks.borrow().clone();
         let orig_send_hooks_len = orig_send_hooks.len();
         orig_send_hooks.retain(|x| !(x)());

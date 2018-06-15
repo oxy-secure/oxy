@@ -76,12 +76,6 @@ fn create_app() -> App<'static, 'static> {
                 "Run a remote basic-command. \
                  Useful for Windows servers.",
             )
-            .long_about(
-                "Run a remote basic-command. \
-                 Useful for Windows servers. \
-                 The command runs asyncronously and you don't get any output, \
-                 but you can pipe output to a file and then download it later.",
-            )
             .arg(Arg::with_name("command").index(1).required(true)),
         SubCommand::with_name("exit").about("Exits the Oxy client."),
         SubCommand::with_name("f10").about("Send F10 to the remote"),
@@ -91,6 +85,9 @@ fn create_app() -> App<'static, 'static> {
             .arg(Arg::with_name("offset start").long("start").takes_value(true))
             .arg(Arg::with_name("offset end").long("end").takes_value(true))
             .about("Request the file hash of a file"),
+        SubCommand::with_name("pipe")
+            .about("Run a command without a pty.")
+            .arg(Arg::with_name("command").index(1).required(true)),
     ];
     let subcommands: Vec<App<'static, 'static>> = subcommands
         .into_iter()
@@ -532,6 +529,15 @@ impl Oxy {
                             offset_end:     matches.value_of("offset end").map(|x| x.parse().unwrap()),
                             hash_algorithm: 3,
                         });
+                    }
+                    "pipe" => {
+                        let command = matches.value_of("command");
+                        if command.is_none() {
+                            self.log_warn("No command provided");
+                        }
+                        let command = command.unwrap().to_string();
+                        let reference = self.send(PipeCommand { command });
+                        *self.internal.pipecmd_reference.borrow_mut() = Some(reference);
                     }
                     _ => (),
                 }
