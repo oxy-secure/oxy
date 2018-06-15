@@ -19,6 +19,8 @@ use std::{
     rc::Rc,
     time::Instant,
 };
+#[cfg(unix)]
+use transportation::mio::unix::EventedFd;
 use transportation::{
     self,
     mio::{
@@ -209,6 +211,7 @@ impl Oxy {
                 }));
             }
             FileTruncateRequest { path, len } => {
+                self.bob_only();
                 #[cfg(unix)]
                 {
                     use std::{fs::OpenOptions, os::unix::io::AsRawFd};
@@ -227,14 +230,15 @@ impl Oxy {
             }
             BindConnectionAccepted { reference } => {
                 assert!(perspective() == Alice);
-                let addr = self
+                let mut addr = self
                     .internal
                     .remote_bind_destinations
                     .borrow_mut()
                     .get(&reference)
-                    .unwrap()
-                    .parse()
-                    .unwrap();
+                    .ok_or("invalid_reference")?
+                    .to_socket_addrs()
+                    .map_err(|_| "failed to resolve destination")?;
+                let addr = addr.next().ok_or("Failed to resolve_destination")?;
                 let stream = TcpStream::connect(&addr).map_err(|_| "Forward-connection failed")?;
                 let bt = BufferedTransport::from(stream);
                 let stream = PortStream {
@@ -249,6 +253,23 @@ impl Oxy {
             }
             RemoteOpen { addr } => {
                 assert!(perspective() == Bob);
+                if addr.contains('/') {
+                    use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                    connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
+                    let bt = BufferedTransport::from(socket);
+                    let stream = PortStream {
+                        stream: bt,
+                        token:  message_number,
+                        oxy:    self.clone(),
+                        local:  false,
+                    };
+                    let stream2 = Rc::new(stream.clone());
+                    stream.stream.set_notify(stream2);
+                    self.internal.remote_streams.borrow_mut().insert(message_number, stream);
+                    return Ok(());
+                }
                 let dest = addr
                     .to_socket_addrs()
                     .map_err(|_| "Resolving address failed.")?
@@ -269,7 +290,47 @@ impl Oxy {
             }
             RemoteBind { addr } => {
                 assert!(perspective() == Bob);
-                let bind = TcpListener::bind(&addr.parse().unwrap()).unwrap();
+                if addr.contains("/") {
+                    use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                    bind(socket, &sockaddr).map_err(|_| "Failed to bind")?;
+                    listen(socket, 10).map_err(|_| "Failed to listen")?;
+                    let token = Rc::new(RefCell::new(0));
+                    let token2 = token.clone();
+                    let proxy = self.clone();
+                    let token3 = transportation::insert_listener(Rc::new(move || {
+                        let addr = addr.clone();
+                        let token = token.clone();
+                        let peer = accept(socket);
+                        if peer.is_err() {
+                            proxy.log_warn(&format!("Failed to accept connection on {}", addr));
+                            transportation::remove_listener(*token.borrow());
+                            return;
+                        }
+                        let peer = peer.unwrap();
+                        let stream_token = proxy.send(BindConnectionAccepted { reference: message_number });
+                        let bt = BufferedTransport::from(peer);
+                        let tracker = super::PortStream {
+                            stream: bt,
+                            token:  stream_token,
+                            oxy:    proxy.clone(),
+                            local:  true,
+                        };
+                        let tracker2 = Rc::new(tracker.clone());
+                        tracker.stream.set_notify(tracker2);
+                        proxy.internal.local_streams.borrow_mut().insert(stream_token, tracker);
+                    }));
+                    *token2.borrow_mut() = token3;
+                    transportation::borrow_poll(|poll| {
+                        poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
+                            .unwrap()
+                    });
+                    return Ok(());
+                }
+                let addr = if !addr.contains(':') { format!("localhost:{}", addr) } else { addr };
+                let bind = ::std::net::TcpListener::bind(&addr).map_err(|_| "bind failed")?;
+                let bind = TcpListener::from_std(bind).map_err(|_| "bind failed")?;
                 let proxy = self.clone();
                 let proxy = Rc::new(move || proxy.notify_bind(message_number));
                 let token = transportation::insert_listener(proxy);
@@ -288,18 +349,36 @@ impl Oxy {
                     .remote_streams
                     .borrow_mut()
                     .get_mut(&reference)
-                    .unwrap()
+                    .ok_or("Invalid reference")?
                     .stream
                     .put(&data[..]);
+            }
+            RemoteStreamClosed { reference } => {
+                self.internal
+                    .remote_streams
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .ok_or("Invalid reference")?
+                    .stream
+                    .close();
             }
             LocalStreamData { reference, data } => {
                 self.internal
                     .local_streams
                     .borrow_mut()
                     .get_mut(&reference)
-                    .unwrap()
+                    .ok_or("Invalid reference")?
                     .stream
                     .put(&data[..]);
+            }
+            LocalStreamClosed { reference } => {
+                self.internal
+                    .local_streams
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .ok_or("Invalid reference")?
+                    .stream
+                    .close();
             }
             #[cfg(unix)]
             TunnelRequest { tap, name } => {

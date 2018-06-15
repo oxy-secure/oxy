@@ -153,10 +153,23 @@ crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
                         let name = server.get("name").unwrap().as_str().unwrap();
                         if name == dest {
                             let host = server.get("host").map(|x| x.as_str().unwrap()).unwrap_or(host_part(dest));
-                            let port = server
-                                .get("port")
-                                .map(|x| x.as_str().unwrap().parse().unwrap())
-                                .unwrap_or(port_part(dest).unwrap_or(2600));
+                            let port = server.get("port");
+                            let port = if let Some(port) = port {
+                                if port.is_integer() {
+                                    port.as_integer().unwrap() as u16
+                                } else {
+                                    port.as_str()
+                                        .expect("invalid port value in config")
+                                        .parse()
+                                        .expect("failed to parse port value from config")
+                                }
+                            } else {
+                                if let Some(port) = port_part(dest) {
+                                    port
+                                } else {
+                                    2600
+                                }
+                            };
                             let result = (host, port).to_socket_addrs();
                             if result.is_err() {
                                 return Vec::new();

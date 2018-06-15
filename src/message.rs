@@ -29,6 +29,8 @@ pub enum OxyMessage {
     RemoteBind { addr: String },
     RemoteStreamData { reference: u64, data: Vec<u8> },
     LocalStreamData { reference: u64, data: Vec<u8> },
+    RemoteStreamClosed { reference: u64 },
+    LocalStreamClosed { reference: u64 },
     BindConnectionAccepted { reference: u64 },
     TunnelRequest { tap: bool, name: String },
     TunnelData { reference: u64, data: Vec<u8> },
@@ -39,4 +41,5 @@ pub enum OxyMessage {
     FileHashRequest { path: String, offset_start: Option<u64>, offset_end: Option<u64>, hash_algorithm: u64 },
     FileHashData { reference: u64, digest: Vec<u8> },
     FileTruncateRequest { path: String, len: u64 },
+    KnockForward { destination: String, knock: Vec<u8> }
 }

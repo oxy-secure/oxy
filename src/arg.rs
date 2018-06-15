@@ -25,19 +25,28 @@ crate fn create_app() -> App<'static, 'static> {
     let l_portfwd = Arg::with_name("l_portfwd")
         .multiple(true)
         .short("L")
-        .number_of_values(1)
-        .takes_value(true);
+        .takes_value(true)
+        .number_of_values(1);
     let r_portfwd = Arg::with_name("r_portfwd")
         .multiple(true)
         .short("R")
         .number_of_values(1)
         .takes_value(true);
+    let d_portfwd = Arg::with_name("SOCKS").multiple(true).short("D").number_of_values(1).takes_value(true);
     let port = Arg::with_name("port")
         .long("port")
         .help("The port used for TCP")
         .takes_value(true)
         .default_value("2600");
-    let client_args = vec![metacommand.clone(), identity.clone(), l_portfwd, r_portfwd, port.clone(), command];
+    let client_args = vec![
+        metacommand.clone(),
+        identity.clone(),
+        l_portfwd,
+        r_portfwd,
+        d_portfwd,
+        port.clone(),
+        command,
+    ];
     let server_args = vec![identity.clone(), port.clone()];
     App::new("oxy")
         .version(crate_version!())

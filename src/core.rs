@@ -375,12 +375,22 @@ impl Oxy {
         debug!("Local stream notify for stream {}", token);
         let data = self.internal.local_streams.borrow_mut().get_mut(&token).unwrap().stream.take();
         self.send(RemoteStreamData { reference: token, data });
+        if self.internal.local_streams.borrow_mut().get_mut(&token).unwrap().stream.is_closed() {
+            self.internal.local_streams.borrow_mut().get_mut(&token).unwrap().stream.close();
+            self.send(RemoteStreamClosed { reference: token });
+            debug!("Stream closed");
+        }
     }
 
     fn notify_remote_stream(&self, token: u64) {
         debug!("Remote stream notify for stream {}", token);
         let data = self.internal.remote_streams.borrow_mut().get_mut(&token).unwrap().stream.take();
         self.send(LocalStreamData { reference: token, data });
+        if self.internal.remote_streams.borrow_mut().get_mut(&token).unwrap().stream.is_closed() {
+            self.internal.remote_streams.borrow_mut().get_mut(&token).unwrap().stream.close();
+            debug!("Stream closed.");
+            self.send(LocalStreamClosed { reference: token });
+        }
     }
 
     fn upgrade_to_encrypted(&self) {
@@ -465,6 +475,24 @@ impl Oxy {
         for command in arg::batched_metacommands() {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
+        }
+        let ls = arg::matches().values_of("l_portfwd");
+        if ls.is_some() {
+            for l in ls.unwrap() {
+                self.handle_metacommand(vec!["L".to_string(), l.to_string()]);
+            }
+        }
+        let rs = arg::matches().values_of("r_portfwd");
+        if rs.is_some() {
+            for r in rs.unwrap() {
+                self.handle_metacommand(vec!["R".to_string(), r.to_string()]);
+            }
+        }
+        let ds = arg::matches().values_of("SOCKS");
+        if ds.is_some() {
+            for d in ds.unwrap() {
+                self.handle_metacommand(vec!["D".to_string(), d.to_string()]);
+            }
         }
     }
 
