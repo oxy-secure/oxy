@@ -328,6 +328,7 @@ impl Oxy {
                     });
                     return Ok(());
                 }
+                let addr = if !addr.contains(':') { format!("localhost:{}", addr) } else { addr };
                 let bind = ::std::net::TcpListener::bind(&addr).map_err(|_| "bind failed")?;
                 let bind = TcpListener::from_std(bind).map_err(|_| "bind failed")?;
                 let proxy = self.clone();
