@@ -55,6 +55,7 @@ crate struct PipeChild {
     err:   BufferedTransport,
 }
 
+#[derive(Default)]
 crate struct OxyInternal {
     naked_transport: RefCell<Option<MessageTransport>>,
     underlying_transport: RefCell<Option<ProtocolTransport>>,
@@ -71,8 +72,8 @@ crate struct OxyInternal {
     naked_state: RefCell<NakedState>,
     kex_data: RefCell<KexData>,
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
-    last_message_seen: RefCell<Instant>,
-    arg: RefCell<OxyArg>,
+    last_message_seen: RefCell<Option<Instant>>,
+    arg: RefCell<Option<OxyArg>>,
     launched: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<dyn Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
@@ -81,6 +82,10 @@ crate struct OxyInternal {
     send_hooks: RefCell<Vec<Rc<dyn Fn() -> bool>>>,
     pipecmd_reference: RefCell<Option<u64>>,
     stdin_bt: RefCell<Option<BufferedTransport>>,
+    remote_bind_cleaners: RefCell<HashMap<u64, Rc<dyn Fn() -> ()>>>,
+    socks_bind_cleaners: RefCell<HashMap<String, Rc<dyn Fn() -> ()>>>,
+    local_bind_cleaners: RefCell<HashMap<String, Rc<dyn Fn() -> ()>>>,
+    kr_references: RefCell<HashMap<String, u64>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -97,44 +102,17 @@ impl Oxy {
     }
 
     fn perspective(&self) -> transportation::EncryptionPerspective {
-        self.internal.arg.borrow().perspective()
+        self.internal.arg.borrow().as_ref().unwrap().perspective()
     }
 
     pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
         let bt: BufferedTransport = transport.into();
         let mt = <MessageTransport as From<BufferedTransport>>::from(bt);
         let arg = OxyArg::create(::std::env::args().collect());
-        let internal = OxyInternal {
-            naked_transport: RefCell::new(Some(mt)),
-            underlying_transport: RefCell::new(None),
-            peer_name: RefCell::new(None),
-            piped_children: RefCell::new(HashMap::new()),
-            ui: RefCell::new(None),
-            outgoing_ticker: RefCell::new(0),
-            incoming_ticker: RefCell::new(0),
-            transfers_out: RefCell::new(Vec::new()),
-            port_binds: RefCell::new(HashMap::new()),
-            local_streams: RefCell::new(HashMap::new()),
-            remote_streams: RefCell::new(HashMap::new()),
-            remote_bind_destinations: RefCell::new(HashMap::new()),
-            naked_state: RefCell::new(NakedState::Reject),
-            kex_data: RefCell::new(KexData::default()),
-            socks_binds: RefCell::new(HashMap::new()),
-            last_message_seen: RefCell::new(Instant::now()),
-            arg: RefCell::new(arg),
-            launched: RefCell::new(false),
-            response_watchers: RefCell::new(Vec::new()),
-            metacommand_queue: RefCell::new(Vec::new()),
-            is_daemon: RefCell::new(false),
-            post_auth_hook: RefCell::new(None),
-            send_hooks: RefCell::new(Vec::new()),
-            pipecmd_reference: RefCell::new(None),
-            stdin_bt: RefCell::new(None),
-            #[cfg(unix)]
-            pty: RefCell::new(None),
-            #[cfg(unix)]
-            tuntaps: RefCell::new(HashMap::new()),
-        };
+        let internal = OxyInternal::default();
+        *internal.naked_transport.borrow_mut() = Some(mt);
+        *internal.last_message_seen.borrow_mut() = Some(Instant::now());
+        *internal.arg.borrow_mut() = Some(arg);
         let x = Oxy { internal: Rc::new(internal) };
         let proxy = x.clone();
         x.internal
@@ -200,7 +178,7 @@ impl Oxy {
         if *self.internal.launched.borrow() {
             panic!("Attempted to change Oxy args after launch.");
         }
-        *self.internal.arg.borrow_mut() = OxyArg::create(args);
+        *self.internal.arg.borrow_mut() = Some(OxyArg::create(args));
     }
 
     fn launch(&self) {
@@ -587,7 +565,7 @@ impl Oxy {
 
     fn notify_keepalive(&self) {
         trace!("Keepalive!");
-        if self.internal.last_message_seen.borrow().elapsed() > Duration::from_secs(180) {
+        if self.internal.last_message_seen.borrow().as_ref().unwrap().elapsed() > Duration::from_secs(180) {
             trace!("Exiting due to lack of keepalives");
             self.exit(2);
         }
