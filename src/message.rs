@@ -27,6 +27,7 @@ pub enum OxyMessage {
     FileData { reference: u64, data: Vec<u8> },
     RemoteOpen { addr: String },
     RemoteBind { addr: String },
+    CloseRemoteBind { reference: u64 },
     RemoteStreamData { reference: u64, data: Vec<u8> },
     LocalStreamData { reference: u64, data: Vec<u8> },
     RemoteStreamClosed { reference: u64 },

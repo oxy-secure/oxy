@@ -55,7 +55,7 @@ impl Oxy {
                 self.send(Pong {});
             }
             Pong {} => {
-                *self.internal.last_message_seen.borrow_mut() = Instant::now();
+                *self.internal.last_message_seen.borrow_mut() = Some(Instant::now());
             }
             BasicCommand { command } => {
                 self.bob_only();
@@ -377,10 +377,22 @@ impl Oxy {
                 stream.stream.set_notify(stream2);
                 self.internal.remote_streams.borrow_mut().insert(message_number, stream);
             }
+            CloseRemoteBind { reference } => {
+                let callback = self
+                    .internal
+                    .remote_bind_cleaners
+                    .borrow_mut()
+                    .remove(&reference)
+                    .ok_or("Invalid reference")?;
+                (callback)();
+            }
             RemoteBind { addr } => {
                 assert!(perspective() == Bob);
                 if addr.contains("/") {
-                    use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                    use nix::{
+                        sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType},
+                        unistd::{close, unlink},
+                    };
                     let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
                     let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
                     bind(socket, &sockaddr).map_err(|_| "Failed to bind")?;
@@ -388,6 +400,7 @@ impl Oxy {
                     let token = Rc::new(RefCell::new(0));
                     let token2 = token.clone();
                     let proxy = self.clone();
+                    let addr2 = addr.clone();
                     let token3 = transportation::insert_listener(Rc::new(move || {
                         let addr = addr.clone();
                         let token = token.clone();
@@ -415,6 +428,19 @@ impl Oxy {
                         poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
                             .unwrap()
                     });
+
+                    self.internal.remote_bind_cleaners.borrow_mut().insert(
+                        message_number,
+                        Rc::new(move || {
+                            debug!("Closing remote bind.");
+                            transportation::remove_listener(token3);
+                            close(socket).map_err(|x| warn!("While closing remote bind: {:?}", x)).ok();
+                            unlink(&PathBuf::from(addr2.clone()))
+                                .map_err(|x| warn!("While unlinking remote bind: {:?}", x))
+                                .ok();
+                        }),
+                    );
+
                     return Ok(());
                 }
                 let addr = if !addr.contains(':') { format!("localhost:{}", addr) } else { addr };
@@ -432,6 +458,13 @@ impl Oxy {
                     remote_spec: "".to_string(),
                 };
                 self.internal.port_binds.borrow_mut().insert(message_number, bind);
+                let proxy = self.clone();
+                self.internal.remote_bind_cleaners.borrow_mut().insert(
+                    message_number,
+                    Rc::new(move || {
+                        proxy.internal.port_binds.borrow_mut().remove(&message_number);
+                    }),
+                );
             }
             RemoteStreamData { reference, data } => {
                 self.internal
@@ -560,6 +593,17 @@ impl Oxy {
                     reference: message_number,
                     digest,
                 });
+            }
+            KnockForward { destination, knock } => {
+                let mut sock = ::std::net::UdpSocket::bind("[::0]:0");
+                if sock.is_err() {
+                    sock = Ok(::std::net::UdpSocket::bind("0.0.0.0:0").map_err(|_| "Failed to create UDP socket")?);
+                }
+                let sock = sock.unwrap();
+                let destination = ::std::net::ToSocketAddrs::to_socket_addrs(&destination).map_err(|_| "Failed to resolve destination")?;
+                for destination in destination {
+                    sock.send_to(&knock, &destination).ok();
+                }
             }
             _ => {
                 debug!("A not-statically supported message type came through.");
