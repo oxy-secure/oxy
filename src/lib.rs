@@ -5,6 +5,7 @@ mod client;
 mod conf;
 mod copy;
 mod core;
+mod exit;
 mod guide;
 mod keys;
 mod message;
