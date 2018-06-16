@@ -75,6 +75,95 @@ impl Oxy {
                     });
                 }
             }
+            PipeCommand { command } => {
+                self.bob_only();
+                use std::process::Stdio;
+                #[cfg(unix)]
+                let sh = "/bin/sh";
+                #[cfg(unix)]
+                let flag = "-c";
+                #[cfg(windows)]
+                let sh = "cmd.exe";
+                #[cfg(windows)]
+                let flag = "/c";
+                let mut result = ::std::process::Command::new(sh)
+                    .arg(flag)
+                    .arg(command)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .stdin(Stdio::piped())
+                    .spawn()
+                    .map_err(|x| format!("Spawn failed: {:?}", x))?;
+                use std::os::unix::io::IntoRawFd;
+                let inp = BufferedTransport::from(result.stdin.take().unwrap().into_raw_fd());
+                let out = BufferedTransport::from(result.stdout.take().unwrap().into_raw_fd());
+                let err = BufferedTransport::from(result.stderr.take().unwrap().into_raw_fd());
+                let proxy = self.clone();
+                let callback = Rc::new(move || {
+                    proxy.notify_pipe_child(message_number);
+                });
+                out.set_notify(callback.clone());
+                err.set_notify(callback.clone());
+                let child = super::PipeChild {
+                    child: result,
+                    inp,
+                    out,
+                    err,
+                };
+                self.internal.piped_children.borrow_mut().insert(message_number, child);
+            }
+            PipeCommandInput { reference, input } => {
+                self.bob_only();
+                if input.is_empty() {
+                    debug!("Recieved pipe EOF");
+                    self.internal
+                        .piped_children
+                        .borrow_mut()
+                        .get_mut(&reference)
+                        .ok_or("Invalid reference")?
+                        .inp
+                        .close();
+                    return Ok(());
+                }
+                self.internal
+                    .piped_children
+                    .borrow_mut()
+                    .get_mut(&reference)
+                    .ok_or("Invalid reference")?
+                    .inp
+                    .put(&input);
+            }
+            PipeCommandOutput {
+                reference: _,
+                stdout,
+                stderr,
+            } => {
+                if !stdout.is_empty() {
+                    let a = ::std::io::stdout();
+                    let mut lock = a.lock();
+                    let status = lock.write_all(&stdout);
+                    if status.is_err() {
+                        self.log_warn(&format!("Error writing to stdout: {:?}", status));
+                    }
+                    lock.flush().ok();
+                }
+                if !stderr.is_empty() {
+                    let a = ::std::io::stderr();
+                    let mut lock = a.lock();
+                    let status = lock.write_all(&stderr);
+                    if status.is_err() {
+                        self.log_warn(&format!("Error writing to stderr: {:?}", status));
+                    }
+                    lock.flush().ok();
+                }
+            }
+            PipeCommandExited { reference: _ } => {
+                self.alice_only();
+                // This is crude and temporary
+                // It'd be nice to like... check if we're actually waiting on a pipecommand/if
+                // we're doing anything else also
+                self.exit(0);
+            }
             #[cfg(unix)]
             PtyRequest { command } => {
                 self.bob_only();
