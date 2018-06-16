@@ -160,7 +160,9 @@ impl Oxy {
             PipeCommandExited { reference: _ } => {
                 self.alice_only();
                 // This is crude and temporary
-                ::std::process::exit(0);
+                // It'd be nice to like... check if we're actually waiting on a pipecommand/if
+                // we're doing anything else also
+                self.exit(0);
             }
             #[cfg(unix)]
             PtyRequest { command } => {
