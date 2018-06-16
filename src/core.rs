@@ -189,7 +189,7 @@ impl Oxy {
         *self.internal.ui.borrow_mut() = Some(Ui::create());
         let proxy = self.clone();
         let proxy = Rc::new(move || proxy.notify_ui());
-        self.internal.ui.borrow_mut().as_ref().unwrap().set_notify(proxy);
+        self.internal.ui.borrow().as_ref().unwrap().set_notify(proxy);
     }
 
     fn is_encrypted(&self) -> bool {
@@ -204,6 +204,23 @@ impl Oxy {
     }
 
     fn launch(&self) {
+        #[cfg(unix)]
+        {
+            let proxy = self.clone();
+            crate::exit::push_hook(move || {
+                if let Some(x) = proxy.internal.ui.borrow_mut().as_ref() {
+                    x.cooked()
+                };
+                crate::ui::cleanup();
+                if proxy.internal.pty.borrow().is_some() {
+                    use nix::sys::signal::{kill, Signal::*};
+                    kill(proxy.internal.pty.borrow().as_ref().unwrap().child_pid, SIGTERM).ok();
+                }
+                if proxy.perspective() == Alice {
+                    info!("Goodbye!");
+                }
+            });
+        }
         if *self.internal.launched.borrow() {
             panic!("Attempted to launch an Oxy instance twice.");
         }
@@ -264,7 +281,7 @@ impl Oxy {
 
     fn notify_ui(&self) {
         use crate::ui::UiMessage::*;
-        while let Some(msg) = self.internal.ui.borrow_mut().as_mut().unwrap().recv() {
+        while let Some(msg) = self.internal.ui.borrow().as_ref().unwrap().recv() {
             match msg {
                 MetaCommand { parts } => {
                     if parts.is_empty() {
@@ -647,19 +664,7 @@ impl Oxy {
     }
 
     fn exit(&self, status: i32) -> ! {
-        #[cfg(unix)]
-        {
-            if let Some(x) = self.internal.ui.borrow_mut().as_ref() {
-                x.cooked()
-            };
-            crate::ui::cleanup();
-
-            if self.internal.pty.borrow().is_some() {
-                use nix::sys::signal::{kill, Signal::*};
-                kill(self.internal.pty.borrow().as_ref().unwrap().child_pid, SIGTERM).ok();
-            }
-        }
-        ::std::process::exit(status);
+        crate::exit::exit(status);
     }
 
     pub fn watch(&self, callback: Rc<dyn Fn(&OxyMessage, u64) -> bool>) {

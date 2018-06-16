@@ -462,6 +462,7 @@ impl Oxy {
                             remote_spec,
                         };
                         self.internal.port_binds.borrow_mut().insert(token_sized, bind);
+                        self.log_info("Forwarding port");
                     }
                     "R" => {
                         let bind_id = self.send(RemoteBind {
@@ -471,6 +472,7 @@ impl Oxy {
                             .remote_bind_destinations
                             .borrow_mut()
                             .insert(bind_id, matches.value_of("local spec").unwrap().to_string());
+                        self.log_info("Forwarding port");
                     }
                     #[cfg(unix)]
                     "tun" => {
@@ -510,6 +512,7 @@ impl Oxy {
                         });
                         let socks = SocksBind { listener: bind };
                         self.internal.socks_binds.borrow_mut().insert(token_sized, socks);
+                        self.log_info("SOCKS proxy established.");
                     }
                     "exit" => {
                         ::std::process::exit(0);

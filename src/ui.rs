@@ -17,6 +17,7 @@ crate struct Ui {
     messages:      Rc<RefCell<Vec<UiMessage>>>,
     platform:      Rc<RefCell<UiPlatformData>>,
     prev_progress: Rc<RefCell<u64>>,
+    escapestate:   Rc<RefCell<u64>>,
 }
 
 #[cfg(unix)]
@@ -43,6 +44,7 @@ impl Ui {
                 platform:      Rc::new(RefCell::new(platform)),
                 messages:      Rc::new(RefCell::new(Vec::new())),
                 prev_progress: Rc::new(RefCell::new(0)),
+                escapestate:   Rc::new(RefCell::new(0)),
             };
             let ui2 = ui.clone();
             ui.underlying.set_notify(Rc::new(ui2));
@@ -209,17 +211,42 @@ impl Notifiable for Ui {
         {
             let f10 = [27, 91, 50, 49, 126];
             let f12 = [27, 91, 50, 52, 126];
+            let enter = [13];
+            let tilde = [126];
+            let key_c = [67];
+            let dot = [46];
 
-            let data = self.underlying.take();
+            let mut data = self.underlying.take();
             if data[..] == f10[..] {
                 self.write_tty("\n\roxy> ");
                 self.cooked();
                 return;
             }
             if data[..] == f12[..] {
-                self.cooked();
-                cleanup();
-                ::std::process::exit(0);
+                ::crate::exit::exit(0);
+            }
+            if data[..] == enter[..] {
+                *self.escapestate.borrow_mut() = 1;
+            } else {
+                let cur = *self.escapestate.borrow();
+                if cur == 1 && data[..] == tilde[..] {
+                    *self.escapestate.borrow_mut() = 2;
+                    return;
+                } else if cur == 2 && data[..] == key_c[..] {
+                    *self.escapestate.borrow_mut() = 1;
+                    self.write_tty("\n\roxy> ");
+                    self.cooked();
+                    return;
+                } else if cur == 2 && data[..] == dot[..] {
+                    ::crate::exit::exit(0);
+                } else if cur == 2 {
+                    let mut data2 = tilde.to_vec();
+                    data2.extend(data);
+                    data = data2;
+                    *self.escapestate.borrow_mut() = 0;
+                } else {
+                    *self.escapestate.borrow_mut() = 0;
+                }
             }
             if !self.is_raw() {
                 match String::from_utf8(data.to_vec()).unwrap().trim() {
