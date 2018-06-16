@@ -34,6 +34,12 @@ pub(super) enum NakedState {
     WaitingForServerSignature,
 }
 
+impl Default for NakedState {
+    fn default() -> NakedState {
+        NakedState::Reject
+    }
+}
+
 impl Oxy {
     pub(super) fn advertise_client_key(&self) {
         let peer_name = self.internal.peer_name.borrow().clone();

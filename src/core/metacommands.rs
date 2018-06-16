@@ -88,6 +88,15 @@ fn create_app() -> App<'static, 'static> {
         SubCommand::with_name("pipe")
             .about("Run a command without a pty.")
             .arg(Arg::with_name("command").index(1).required(true)),
+        SubCommand::with_name("KL")
+            .about("Terminate a local portforward")
+            .arg(Arg::with_name("spec").index(1).required(true)),
+        SubCommand::with_name("KR")
+            .about("Terminate a remote portforward")
+            .arg(Arg::with_name("spec").index(1).required(true)),
+        SubCommand::with_name("KD")
+            .about("Terminate a SOCKS portforward")
+            .arg(Arg::with_name("spec").index(1).required(true)),
     ];
     let subcommands: Vec<App<'static, 'static>> = subcommands
         .into_iter()
@@ -131,6 +140,10 @@ fn preprocess_parts(mut parts: Vec<String>) -> Vec<String> {
             return vec![parts[0].clone(), format!("localhost:{}", port), format!("localhost:{}", port)];
         }
         let colon_count = spec.matches(':').count();
+        if colon_count == 0 {
+            // Maybe spec is a unix socket path that should be used on both sides?
+            return vec![parts[0].clone(), spec.clone(), spec.clone()];
+        }
         if colon_count == 1 {
             return vec![
                 parts[0].clone(),
@@ -383,6 +396,19 @@ impl Oxy {
                             _ => false,
                         }));
                     }
+                    "KL" => {
+                        let mut spec = matches.value_of("spec").unwrap().to_string();
+                        if !spec.contains(":") && !spec.contains("/") {
+                            spec = format!("localhost:{}", spec);
+                        }
+                        let cleaner = self.internal.local_bind_cleaners.borrow_mut().remove(&spec);
+                        if cleaner.is_none() {
+                            self.log_warn("Could not find local forward to close.");
+                            return;
+                        }
+                        (cleaner.unwrap())();
+                        self.log_info("Port forward closed.");
+                    }
                     "L" => {
                         let remote_spec = matches.value_of("remote spec").unwrap().to_string();
                         let mut local_spec = matches.value_of("local spec").unwrap().to_string();
@@ -397,7 +423,8 @@ impl Oxy {
                                 return;
                             }
                             let socket = socket.unwrap();
-                            let sockaddr = SockAddr::new_unix(&PathBuf::from(local_spec.clone()));
+                            let path = PathBuf::from(local_spec.clone());
+                            let sockaddr = SockAddr::new_unix(&path);
                             if sockaddr.is_err() {
                                 self.log_warn("Failed to parse socket address");
                                 return;
@@ -414,6 +441,7 @@ impl Oxy {
                             let token = Rc::new(RefCell::new(0));
                             let token2 = token.clone();
                             let proxy = self.clone();
+                            let local_spec2 = local_spec.clone();
                             let token3 = transportation::insert_listener(Rc::new(move || {
                                 let token = token.clone();
                                 let peer = accept(socket);
@@ -442,6 +470,20 @@ impl Oxy {
                                 poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
                                     .unwrap()
                             });
+                            self.log_info("Forwarding port");
+                            self.internal.local_bind_cleaners.borrow_mut().insert(
+                                local_spec2,
+                                Rc::new(move || {
+                                    use nix::unistd::{close, unlink};
+                                    transportation::remove_listener(token3);
+                                    if close(socket).is_err() {
+                                        warn!("Error closing socks socket");
+                                    }
+                                    if unlink(&path).is_err() {
+                                        warn!("Error removing socks socket");
+                                    }
+                                }),
+                            );
                             return;
                         }
                         let bind = ::std::net::TcpListener::bind(&local_spec).unwrap();
@@ -458,16 +500,41 @@ impl Oxy {
                         });
                         let bind = PortBind {
                             listener: bind,
-                            local_spec,
+                            local_spec: local_spec.clone(),
                             remote_spec,
                         };
                         self.internal.port_binds.borrow_mut().insert(token_sized, bind);
                         self.log_info("Forwarding port");
+                        let selfproxy = self.clone();
+                        self.internal.local_bind_cleaners.borrow_mut().insert(
+                            local_spec.clone(),
+                            Rc::new(move || {
+                                transportation::remove_listener(token);
+                                let bind = selfproxy.internal.port_binds.borrow_mut().remove(&token_sized).unwrap();
+                                transportation::borrow_poll(|poll| {
+                                    poll.deregister(&bind.listener).ok();
+                                });
+                            }),
+                        );
+                    }
+                    "KR" => {
+                        let mut spec = matches.value_of("spec").unwrap().to_string();
+                        if !spec.contains(":") && !spec.contains("/") {
+                            spec = format!("localhost:{}", spec);
+                        }
+                        let reference = self.internal.kr_references.borrow_mut().remove(&spec);
+                        if reference.is_none() {
+                            self.log_warn("Could not find remote forward to close.");
+                            return;
+                        }
+                        let reference = reference.unwrap();
+                        self.send(CloseRemoteBind { reference });
+                        self.log_info("Remote forward closed");
                     }
                     "R" => {
-                        let bind_id = self.send(RemoteBind {
-                            addr: matches.value_of("remote spec").unwrap().to_string(),
-                        });
+                        let remote_spec = matches.value_of("remote spec").unwrap().to_string();
+                        let bind_id = self.send(RemoteBind { addr: remote_spec.clone() });
+                        self.internal.kr_references.borrow_mut().insert(remote_spec, bind_id);
                         self.internal
                             .remote_bind_destinations
                             .borrow_mut()
@@ -492,12 +559,91 @@ impl Oxy {
                         let tuntap = TunTap::create(TunTapType::Tap, matches.value_of("local tap").unwrap(), reference_number, self.clone());
                         self.internal.tuntaps.borrow_mut().insert(reference_number, tuntap);
                     }
+                    "KD" => {
+                        let mut spec = matches.value_of("spec").unwrap().to_string();
+                        if !spec.contains(":") && !spec.contains("/") {
+                            spec = format!("localhost:{}", spec);
+                        }
+                        let cleaner = self.internal.socks_bind_cleaners.borrow_mut().remove(&spec);
+                        if cleaner.is_none() {
+                            self.log_warn("Could not find SOCKS forward to close.");
+                            return;
+                        }
+                        (cleaner.unwrap())();
+                        self.log_info("SOCKS proxy closed.");
+                    }
                     "socks" => {
                         let mut local_spec = matches.value_of("bind spec").unwrap().to_string();
                         if !local_spec.contains(':') && !local_spec.contains('/') {
                             local_spec = format!("localhost:{}", local_spec);
                         }
-                        let bind = ::std::net::TcpListener::bind(local_spec).unwrap();
+                        if local_spec.contains("/") {
+                            use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                            let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None);
+                            if socket.is_err() {
+                                self.log_warn("Failed to create socket");
+                                return;
+                            }
+                            let socket = socket.unwrap();
+                            let path = PathBuf::from(local_spec.clone());
+                            let sockaddr = SockAddr::new_unix(&path);
+                            if sockaddr.is_err() {
+                                self.log_warn("Failed to parse socket address");
+                                return;
+                            }
+                            let sockaddr = sockaddr.unwrap();
+                            let bind_result = bind(socket, &sockaddr);
+                            if bind_result.is_err() {
+                                self.log_warn(&format!("Failed to bind {}", local_spec));
+                            }
+                            let listen_result = listen(socket, 10);
+                            if listen_result.is_err() {
+                                self.log_warn(&format!("Failed to listen {}", local_spec));
+                            }
+                            let token = Rc::new(RefCell::new(0));
+                            let token2 = token.clone();
+                            let proxy = self.clone();
+                            let local_spec2 = local_spec.clone();
+                            let token3 = transportation::insert_listener(Rc::new(move || {
+                                let token = token.clone();
+                                let peer = accept(socket);
+                                if peer.is_err() {
+                                    proxy.log_warn(&format!("Failed to accept connection on {}", local_spec));
+                                    transportation::remove_listener(*token.borrow());
+                                    return;
+                                }
+                                proxy.log_info("Accepted SOCKS connection");
+                                let peer = peer.unwrap();
+                                let bt = BufferedTransport::from(peer);
+                                let sproxy = super::SocksConnectionNotificationProxy {
+                                    oxy: proxy.clone(),
+                                    bt,
+                                    state: Rc::new(RefCell::new(super::SocksState::Initial)),
+                                };
+                                let sproxy = Rc::new(sproxy);
+                                sproxy.bt.set_notify(sproxy.clone());
+                            }));
+                            *token2.borrow_mut() = token3;
+                            transportation::borrow_poll(|poll| {
+                                poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
+                                    .unwrap()
+                            });
+                            self.internal.socks_bind_cleaners.borrow_mut().insert(
+                                local_spec2,
+                                Rc::new(move || {
+                                    use nix::unistd::{close, unlink};
+                                    transportation::remove_listener(token3);
+                                    if close(socket).is_err() {
+                                        warn!("Error closing socks socket");
+                                    }
+                                    if unlink(&path).is_err() {
+                                        warn!("Error removing socks socket");
+                                    }
+                                }),
+                            );
+                            return;
+                        }
+                        let bind = ::std::net::TcpListener::bind(&local_spec).unwrap();
                         let bind = TcpListener::from_std(bind).unwrap();
                         let proxy = SocksBindNotificationProxy {
                             oxy:   self.clone(),
@@ -513,6 +659,17 @@ impl Oxy {
                         let socks = SocksBind { listener: bind };
                         self.internal.socks_binds.borrow_mut().insert(token_sized, socks);
                         self.log_info("SOCKS proxy established.");
+                        let selfproxy = self.clone();
+                        self.internal.socks_bind_cleaners.borrow_mut().insert(
+                            local_spec.clone(),
+                            Rc::new(move || {
+                                transportation::remove_listener(token);
+                                let bind = selfproxy.internal.socks_binds.borrow_mut().remove(&token_sized).unwrap();
+                                transportation::borrow_poll(|poll| {
+                                    poll.deregister(&bind.listener).ok();
+                                });
+                            }),
+                        );
                     }
                     "exit" => {
                         ::std::process::exit(0);
