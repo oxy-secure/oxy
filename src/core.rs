@@ -1,6 +1,7 @@
 mod handle_message;
 mod kex;
 mod metacommands;
+mod restrict_message;
 mod scoped_arg;
 
 use self::{
@@ -86,6 +87,7 @@ crate struct OxyInternal {
     socks_bind_cleaners: RefCell<HashMap<String, Rc<dyn Fn() -> ()>>>,
     local_bind_cleaners: RefCell<HashMap<String, Rc<dyn Fn() -> ()>>>,
     kr_references: RefCell<HashMap<String, u64>>,
+    peer_user: RefCell<Option<String>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -538,7 +540,14 @@ impl Oxy {
         self.send(PipeCommandInput { reference, input });
     }
 
+    fn matches<R>(&self, callback: impl FnOnce(&::clap::ArgMatches<'static>) -> R) -> R {
+        self.internal.arg.borrow().as_ref().unwrap().matches(callback)
+    }
+
     fn run_batched_metacommands(&self) {
+        if let Some(user) = arg::matches().value_of("user") {
+            self.send(UsernameAdvertisement { username: user.to_string() });
+        }
         for command in arg::batched_metacommands() {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);

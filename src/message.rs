@@ -44,4 +44,5 @@ pub enum OxyMessage {
     FileTruncateRequest { path: String, len: u64 },
     KnockForward { destination: String, knock: Vec<u8> },
     AdvertiseXAuth { cookie: String },
+    UsernameAdvertisement { username: String },
 }

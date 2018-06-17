@@ -51,6 +51,10 @@ crate fn create_app() -> App<'static, 'static> {
         .help("The port used for TCP")
         .takes_value(true)
         .default_value("2600");
+    let user = Arg::with_name("user")
+        .long("user")
+        .takes_value(true)
+        .help("The remote username to log in with. Only applicable for servers using --su-mode");
     let xforward = Arg::with_name("X Forwarding").short("X").help("Enable X forwarding");
     let trusted_xforward = Arg::with_name("Trusted X Forwarding").short("Y").help("Enable trusted X forwarding");
     let server_config = Arg::with_name("server config")
@@ -63,6 +67,17 @@ crate fn create_app() -> App<'static, 'static> {
         .help("Path to client.conf")
         .default_value("~/.config/oxy/client.conf")
         .display_order(100);
+    let forced_command = Arg::with_name("forced command")
+        .long("forced-command")
+        .help("Restrict command execution to the specified command")
+        .takes_value(true);
+    let su_mode = Arg::with_name("su mode")
+        .long("su-mode")
+        .help("Enable multi-user support by setting forced-command 'su - \"$USERNAME\"'. Note: The recommended way to use oxy is in single-user mode with one server process/user.")
+        .conflicts_with("forced command");
+    let unsafe_reexec = Arg::with_name("unsafe reexec")
+        .long("unsafe-reexec")
+        .help("Bypass safety restrictions intended to avoid privilege elevation");
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -74,55 +89,49 @@ crate fn create_app() -> App<'static, 'static> {
         trusted_xforward,
         server_config.clone(),
         client_config.clone(),
+        user,
         command,
     ];
-    let server_args = vec![server_config, client_config, identity.clone(), port.clone()];
+    let server_args = vec![server_config, client_config, forced_command, su_mode, identity.clone(), port.clone()];
+
+    let subcommands = vec![
+        SubCommand::with_name("client")
+            .about("Connect to an Oxy server.")
+            .args(&client_args)
+            .arg(Arg::with_name("destination").index(1).required(true)),
+        SubCommand::with_name("reexec")
+            .about("Service a single oxy connection. Communicates on stdio by default.")
+            .arg(Arg::with_name("fd").long("fd").takes_value(true).required(true))
+            .args(&server_args),
+        SubCommand::with_name("server")
+            .about("Listen for port knocks, accept TCP connections, then reexec for each one.")
+            .args(&server_args)
+            .arg(unsafe_reexec),
+        SubCommand::with_name("serve-one")
+            .about("Accept a single TCP connection, then service it in the same process.")
+            .args(&server_args)
+            .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
+        SubCommand::with_name("reverse-server")
+            .about("Connect out to a listening client. Then, be a server.")
+            .args(&server_args)
+            .arg(Arg::with_name("destination").index(1).required(true)),
+        SubCommand::with_name("reverse-client")
+            .about("Bind a port and wait for a server to connect. Then, be a client.")
+            .args(&client_args)
+            .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
+        SubCommand::with_name("copy")
+            .about("Copy files from any number of sources to one destination.")
+            .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
+            .arg(identity.clone()),
+        SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
+    ];
+    let subcommands: Vec<_> = subcommands.into_iter().map(|x| x.setting(AppSettings::UnifiedHelpMessage)).collect();
     App::new("oxy")
         .version(crate_version!())
         .author(crate_authors!())
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(
-            SubCommand::with_name("client")
-                .about("Connect to an Oxy server.")
-                .args(&client_args)
-                .arg(Arg::with_name("destination").index(1).required(true)),
-        )
-        .subcommand(
-            SubCommand::with_name("reexec")
-                .about("Service a single oxy connection. Communicates on stdio by default.")
-                .arg(Arg::with_name("fd").long("fd").takes_value(true).required(true))
-                .args(&server_args),
-        )
-        .subcommand(
-            SubCommand::with_name("server")
-                .about("Listen for port knocks, accept TCP connections, then reexec for each one.")
-                .args(&server_args),
-        )
-        .subcommand(
-            SubCommand::with_name("serve-one")
-                .about("Accept a single TCP connection, then service it in the same process.")
-                .args(&server_args)
-                .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
-        )
-        .subcommand(
-            SubCommand::with_name("reverse-server")
-                .about("Connect out to a listening client. Then, be a server.")
-                .args(&server_args)
-                .arg(Arg::with_name("destination").index(1).required(true)),
-        )
-        .subcommand(
-            SubCommand::with_name("reverse-client")
-                .about("Bind a port and wait for a server to connect. Then, be a client.")
-                .args(&client_args)
-                .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
-        )
-        .subcommand(
-            SubCommand::with_name("copy")
-                .about("Copy files from any number of sources to one destination.")
-                .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
-                .arg(identity.clone()),
-        )
-        .subcommand(SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."))
+        .setting(AppSettings::UnifiedHelpMessage)
+        .subcommands(subcommands)
 }
 
 fn create_matches() -> ArgMatches<'static> {

@@ -1,8 +1,13 @@
 use crate::core::Oxy;
+
+use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
-use std;
 use transportation::BufferedTransport;
+
+lazy_static! {
+    static ref CURRENT_EXE: ::std::path::PathBuf = ::std::env::current_exe().unwrap();
+}
 
 crate fn run() {
     #[cfg(unix)]
@@ -24,14 +29,38 @@ crate fn is_suid() -> bool {
     euid != uid
 }
 
+crate fn safety_check() {
+    if crate::arg::mode() == "server" {
+        safety_check_hard();
+    }
+}
+
+crate fn safety_check_hard() {
+    let path = CURRENT_EXE.clone();
+    if crate::arg::matches().is_present("unsafe reexec") {
+        warn!("Using --unsafe-reexec");
+        return;
+    }
+    if !(path.starts_with(::std::env::home_dir().unwrap()) || path.starts_with("/usr")) {
+        error!("Re-execution can lead to privilege escalation if another user can write to the executable path. Oxy detected that it is running from an uncommon location which makes it more likely this might apply. If you are certain no other user can hijack the path {:?}, run again with --unsafe-rexec", path);
+        ::std::process::exit(1);
+    }
+}
+
 crate fn reexec(args: &[&str]) {
+    // SECURITYWATCH: We shouldn't reexec if another non-root user has write
+    // permission on our binary or any parent folder. This is an out-and-out vuln
+    // if somebody puts oxy in /tmp or something. It should be fine as long as
+    // we're in /home/user/.bin/oxy or /usr/bin/local/oxy or whatever, but...
+    // additional controls need to be added.
+    safety_check_hard();
     #[cfg(unix)]
     {
         if is_suid() {
             panic!("Reexec when running suid is potentially unsafe - not implemented yet.");
         }
     }
-    let path = std::env::current_exe().unwrap();
+    let path = CURRENT_EXE.clone();
     #[cfg(unix)]
     {
         use nix::unistd::{execv, fork, ForkResult::*};

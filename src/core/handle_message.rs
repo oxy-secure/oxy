@@ -44,6 +44,7 @@ impl Oxy {
     pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) -> Result<(), String> {
         debug!("Recieved message {}", message_number);
         trace!("Received message {}: {:?}", message_number, message);
+        let message = self.restrict_message(message).map_err(|_| "Permission denied")?;
         self.dispatch_watchers(&message, message_number);
         match message {
             DummyMessage { .. } => (),
@@ -56,6 +57,10 @@ impl Oxy {
             }
             Pong {} => {
                 *self.internal.last_message_seen.borrow_mut() = Some(Instant::now());
+            }
+            UsernameAdvertisement { username } => {
+                self.bob_only();
+                *self.internal.peer_user.borrow_mut() = Some(username);
             }
             BasicCommand { command } => {
                 self.bob_only();

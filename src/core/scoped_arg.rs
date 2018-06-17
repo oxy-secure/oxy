@@ -16,6 +16,10 @@ impl OxyArg {
         self.matches.subcommand_name().unwrap().to_string()
     }
 
+    crate fn matches<R>(&self, callback: impl FnOnce(&ArgMatches<'static>) -> R) -> R {
+        (callback)(self.matches.subcommand_matches(self.mode()).unwrap())
+    }
+
     crate fn perspective(&self) -> EncryptionPerspective {
         match self.mode().as_str() {
             "reexec" => Bob,
