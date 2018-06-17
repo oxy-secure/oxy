@@ -543,19 +543,19 @@ impl Oxy {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
         }
-        let ls = arg::matches().values_of("Local Port Forward");
+        let ls = arg::matches().values_of("local port forward");
         if ls.is_some() {
             for l in ls.unwrap() {
                 self.handle_metacommand(vec!["L".to_string(), l.to_string()]);
             }
         }
-        let rs = arg::matches().values_of("Remote Port Forward");
+        let rs = arg::matches().values_of("remote port forward");
         if rs.is_some() {
             for r in rs.unwrap() {
                 self.handle_metacommand(vec!["R".to_string(), r.to_string()]);
             }
         }
-        let ds = arg::matches().values_of("SOCKS");
+        let ds = arg::matches().values_of("socks");
         if ds.is_some() {
             for d in ds.unwrap() {
                 self.handle_metacommand(vec!["D".to_string(), d.to_string()]);

@@ -23,25 +23,28 @@ crate fn create_app() -> App<'static, 'static> {
         .help("Use [identity] as authentication information for connecting to the remote server.")
         .env("OXY_IDENTITY");
     let command = Arg::with_name("command").index(2).default_value("bash");
-    let l_portfwd = Arg::with_name("Local Port Forward")
+    let l_portfwd = Arg::with_name("local port forward")
         .multiple(true)
         .short("L")
         .takes_value(true)
         .number_of_values(1)
-        .help("Create a local portforward");
-    let r_portfwd = Arg::with_name("Remote Port Forward")
+        .help("Create a local portforward")
+        .display_order(102);
+    let r_portfwd = Arg::with_name("remote port forward")
         .multiple(true)
         .short("R")
         .number_of_values(1)
         .takes_value(true)
-        .help("Create a remote portforward");
-    let d_portfwd = Arg::with_name("SOCKS")
+        .help("Create a remote portforward")
+        .display_order(103);
+    let d_portfwd = Arg::with_name("socks")
         .multiple(true)
         .short("D")
         .long("socks")
         .help("Bind a local port as a SOCKS5 proxy")
         .number_of_values(1)
-        .takes_value(true);
+        .takes_value(true)
+        .display_order(104);
     let port = Arg::with_name("port")
         .short("p")
         .long("port")
@@ -50,6 +53,16 @@ crate fn create_app() -> App<'static, 'static> {
         .default_value("2600");
     let xforward = Arg::with_name("X Forwarding").short("X").help("Enable X forwarding");
     let trusted_xforward = Arg::with_name("Trusted X Forwarding").short("Y").help("Enable trusted X forwarding");
+    let server_config = Arg::with_name("server config")
+        .long("server-config")
+        .help("Path to server.conf")
+        .default_value("~/.config/oxy/server.conf")
+        .display_order(101);
+    let client_config = Arg::with_name("client config")
+        .long("client-config")
+        .help("Path to client.conf")
+        .default_value("~/.config/oxy/client.conf")
+        .display_order(100);
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -59,9 +72,11 @@ crate fn create_app() -> App<'static, 'static> {
         port.clone(),
         xforward,
         trusted_xforward,
+        server_config.clone(),
+        client_config.clone(),
         command,
     ];
-    let server_args = vec![identity.clone(), port.clone()];
+    let server_args = vec![server_config, client_config, identity.clone(), port.clone()];
     App::new("oxy")
         .version(crate_version!())
         .author(crate_authors!())

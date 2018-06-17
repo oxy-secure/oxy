@@ -34,14 +34,17 @@ fn load_conf() -> Conf {
 }
 
 fn load_from_home(path: &str) -> Option<toml::Value> {
-    let home = ::std::env::home_dir();
-    if home.is_none() {
-        return None;
+    let mut path = path.to_string();
+    if path.starts_with("~") {
+        let home = ::std::env::home_dir();
+        if home.is_none() {
+            return None;
+        }
+        let home = home.unwrap();
+        let home = home.to_str().unwrap().to_string();
+        path = path.replacen('~', &home, 1);
     }
-    let home = home.unwrap();
-    let mut full_path = home.clone();
-    full_path.push(path);
-    let file = File::open(&full_path);
+    let file = File::open(&path);
     if file.is_err() {
         debug!("No {} config to load.", path);
         return None;
@@ -69,11 +72,21 @@ fn load_from_home(path: &str) -> Option<toml::Value> {
 
 impl Conf {
     fn load_client_conf(&mut self) {
-        self.client = load_from_home(".config/oxy/client.conf");
+        let path = crate::arg::matches().value_of("client config");
+        if path.is_none() {
+            return;
+        }
+        let path = path.unwrap();
+        self.client = load_from_home(path);
     }
 
     fn load_server_conf(&mut self) {
-        self.server = load_from_home(".config/oxy/server.conf");
+        let path = crate::arg::matches().value_of("server config");
+        if path.is_none() {
+            return;
+        }
+        let path = path.unwrap();
+        self.server = load_from_home(path);
     }
 }
 
