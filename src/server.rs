@@ -48,6 +48,7 @@ impl Server {
     }
 
     fn init(&self) {
+        crate::reexec::safety_check();
         let knock_port = crate::keys::knock_port(None);
         info!("Listening for knocks on port {}", knock_port);
         let bind_addr = format!("[::]:{}", knock_port).parse().unwrap();
@@ -223,7 +224,14 @@ fn fork_and_handle(stream: TcpStream) {
                                     // O_CLOEXEC, but it can't~
 
         let identity = crate::keys::identity_string();
-        reexec(&["reexec", &format!("--fd={}", fd2), &format!("--identity={}", identity)]);
+        let mut args = vec!["reexec".to_string(), format!("--fd={}", fd2), format!("--identity={}", identity)];
+        if let Some(command) = crate::arg::matches().value_of("forced command") {
+            args.push(format!("--forced-command={}", command));
+        }
+        if crate::arg::matches().is_present("su mode") {
+            args.push("--su-mode".to_string());
+        }
+        reexec(&args.iter().map(|x| x.as_str()).collect::<Vec<&str>>()[..]);
         close(fd).unwrap();
         close(fd2).unwrap();
     }

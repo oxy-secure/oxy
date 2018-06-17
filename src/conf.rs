@@ -202,6 +202,7 @@ crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
 crate fn identity() -> Option<&'static str> {
     match crate::arg::mode().as_str() {
         "server" => server_identity(),
+        "serve-one" => server_identity(),
         "client" => client_identity(),
         _ => None,
     }
