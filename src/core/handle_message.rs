@@ -138,6 +138,7 @@ impl Oxy {
                 stdout,
                 stderr,
             } => {
+                self.alice_only();
                 if !stdout.is_empty() {
                     let a = ::std::io::stdout();
                     let mut lock = a.lock();
@@ -156,6 +157,17 @@ impl Oxy {
                     }
                     lock.flush().ok();
                 }
+            }
+            AdvertiseXAuth { cookie } => {
+                self.bob_only();
+                ::std::process::Command::new("xauth")
+                    .arg("add")
+                    .arg(":10")
+                    .arg(".")
+                    .arg(&cookie)
+                    .output()
+                    .map_err(|_| "Xauth failed")?;
+                ::std::env::set_var("DISPLAY", ":10");
             }
             PipeCommandExited { reference: _ } => {
                 self.alice_only();
@@ -197,9 +209,9 @@ impl Oxy {
             }
             BasicCommandOutput { stdout, stderr } => {
                 self.alice_only();
-                info!("BasicCommandOutput {:?}, {:?}", stdout, stderr);
+                self.log_debug(&format!("BasicCommandOutput {:?}, {:?}", stdout, stderr));
                 if let Ok(stdout) = String::from_utf8(stdout) {
-                    info!("stdout:\n-----\n{}\n-----", stdout);
+                    self.log_debug(&format!("stdout:\n-----\n{}\n-----", stdout));
                 }
             }
             DownloadRequest {
@@ -319,14 +331,31 @@ impl Oxy {
             }
             BindConnectionAccepted { reference } => {
                 assert!(perspective() == Alice);
-                let mut addr = self
+                let addr = self
                     .internal
                     .remote_bind_destinations
                     .borrow_mut()
                     .get(&reference)
                     .ok_or("invalid_reference")?
-                    .to_socket_addrs()
-                    .map_err(|_| "failed to resolve destination")?;
+                    .clone();
+                if addr.contains('/') {
+                    use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                    connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
+                    let bt = BufferedTransport::from(socket);
+                    let stream = PortStream {
+                        stream: bt,
+                        token:  message_number,
+                        oxy:    self.clone(),
+                        local:  false,
+                    };
+                    let stream2 = Rc::new(stream.clone());
+                    stream.stream.set_notify(stream2);
+                    self.internal.remote_streams.borrow_mut().insert(message_number, stream);
+                    return Ok(());
+                }
+                let mut addr = addr.to_socket_addrs().map_err(|_| "failed to resolve destination")?;
                 let addr = addr.next().ok_or("Failed to resolve_destination")?;
                 let stream = TcpStream::connect(&addr).map_err(|_| "Forward-connection failed")?;
                 let bt = BufferedTransport::from(stream);
@@ -397,6 +426,7 @@ impl Oxy {
                     let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
                     bind(socket, &sockaddr).map_err(|_| "Failed to bind")?;
                     listen(socket, 10).map_err(|_| "Failed to listen")?;
+                    debug!("Remote bind successful");
                     let token = Rc::new(RefCell::new(0));
                     let token2 = token.clone();
                     let proxy = self.clone();
@@ -405,6 +435,7 @@ impl Oxy {
                         let addr = addr.clone();
                         let token = token.clone();
                         let peer = accept(socket);
+                        debug!("Accepted connection");
                         if peer.is_err() {
                             proxy.log_warn(&format!("Failed to accept connection on {}", addr));
                             transportation::remove_listener(*token.borrow());

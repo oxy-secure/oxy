@@ -20,24 +20,36 @@ crate fn create_app() -> App<'static, 'static> {
         .short("i")
         .long("identity")
         .takes_value(true)
+        .help("Use [identity] as authentication information for connecting to the remote server.")
         .env("OXY_IDENTITY");
     let command = Arg::with_name("command").index(2).default_value("bash");
-    let l_portfwd = Arg::with_name("l_portfwd")
+    let l_portfwd = Arg::with_name("Local Port Forward")
         .multiple(true)
         .short("L")
         .takes_value(true)
-        .number_of_values(1);
-    let r_portfwd = Arg::with_name("r_portfwd")
+        .number_of_values(1)
+        .help("Create a local portforward");
+    let r_portfwd = Arg::with_name("Remote Port Forward")
         .multiple(true)
         .short("R")
         .number_of_values(1)
+        .takes_value(true)
+        .help("Create a remote portforward");
+    let d_portfwd = Arg::with_name("SOCKS")
+        .multiple(true)
+        .short("D")
+        .long("socks")
+        .help("Bind a local port as a SOCKS5 proxy")
+        .number_of_values(1)
         .takes_value(true);
-    let d_portfwd = Arg::with_name("SOCKS").multiple(true).short("D").number_of_values(1).takes_value(true);
     let port = Arg::with_name("port")
+        .short("p")
         .long("port")
         .help("The port used for TCP")
         .takes_value(true)
         .default_value("2600");
+    let xforward = Arg::with_name("X Forwarding").short("X").help("Enable X forwarding");
+    let trusted_xforward = Arg::with_name("Trusted X Forwarding").short("Y").help("Enable trusted X forwarding");
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -45,6 +57,8 @@ crate fn create_app() -> App<'static, 'static> {
         r_portfwd,
         d_portfwd,
         port.clone(),
+        xforward,
+        trusted_xforward,
         command,
     ];
     let server_args = vec![identity.clone(), port.clone()];
@@ -66,7 +80,7 @@ crate fn create_app() -> App<'static, 'static> {
         )
         .subcommand(
             SubCommand::with_name("server")
-                .about("Accept TCP connections then reexec for each one.")
+                .about("Listen for port knocks, accept TCP connections, then reexec for each one.")
                 .args(&server_args),
         )
         .subcommand(

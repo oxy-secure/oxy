@@ -42,5 +42,6 @@ pub enum OxyMessage {
     FileHashRequest { path: String, offset_start: Option<u64>, offset_end: Option<u64>, hash_algorithm: u64 },
     FileHashData { reference: u64, digest: Vec<u8> },
     FileTruncateRequest { path: String, len: u64 },
-    KnockForward { destination: String, knock: Vec<u8> }
+    KnockForward { destination: String, knock: Vec<u8> },
+    AdvertiseXAuth { cookie: String },
 }

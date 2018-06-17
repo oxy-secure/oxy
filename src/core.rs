@@ -543,13 +543,13 @@ impl Oxy {
             let parts = shlex::split(&command).unwrap();
             self.handle_metacommand(parts);
         }
-        let ls = arg::matches().values_of("l_portfwd");
+        let ls = arg::matches().values_of("Local Port Forward");
         if ls.is_some() {
             for l in ls.unwrap() {
                 self.handle_metacommand(vec!["L".to_string(), l.to_string()]);
             }
         }
-        let rs = arg::matches().values_of("r_portfwd");
+        let rs = arg::matches().values_of("Remote Port Forward");
         if rs.is_some() {
             for r in rs.unwrap() {
                 self.handle_metacommand(vec!["R".to_string(), r.to_string()]);
@@ -561,6 +561,50 @@ impl Oxy {
                 self.handle_metacommand(vec!["D".to_string(), d.to_string()]);
             }
         }
+        if arg::matches().is_present("X Forwarding") {
+            self.initiate_x_forwarding();
+        }
+    }
+
+    fn initiate_x_forwarding(&self) {
+        warn!(r"X Forwarding counts on xauth to set a good umask. If xauth doesn't set a umask, there's a brief window where someone could steal an xauthority cookie out of /tmp. It sets umask on my system! ¯\_(ツ)_/¯");
+        let trust = if arg::matches().is_present("Trusted X Forwarding") {
+            "trusted"
+        } else {
+            "untrusted"
+        };
+        let xauth = ::std::process::Command::new("xauth")
+            .arg("-f")
+            .arg("/tmp/xcookie")
+            .arg("generate")
+            .arg(":0")
+            .arg(".")
+            .arg(trust)
+            .arg("timeout")
+            .arg("3600")
+            .output();
+        if xauth.is_err() {
+            warn!("Failed to generate an xauthority cookie");
+            return;
+        }
+        let cookie = ::std::process::Command::new("xauth").arg("-f").arg("/tmp/xcookie").arg("list").output();
+        if cookie.is_err() {
+            warn!("Failed to retrieve the xauthority cookie");
+            ::std::fs::remove_file("/tmp/xcookie").ok();
+            return;
+        }
+        ::std::fs::remove_file("/tmp/xcookie").unwrap();
+        let cookie = cookie.unwrap();
+        let cookie = String::from_utf8(cookie.stdout.clone());
+        if cookie.is_err() {
+            warn!("Failed to decode xauth output");
+        }
+        let cookie = cookie.unwrap();
+        let cookie = cookie.rsplit(" ").next().unwrap().to_string();
+        debug!("xcookie: {:?}", cookie);
+        self.send(AdvertiseXAuth { cookie });
+        self.handle_metacommand(vec!["sh".to_string(), "mkdir /tmp/.X11-unix".to_string()]);
+        self.handle_metacommand(vec!["R".to_string(), "/tmp/.X11-unix/X10".to_string(), "/tmp/.X11-unix/X0".to_string()]);
     }
 
     fn notify_keepalive(&self) {
