@@ -1,6 +1,8 @@
 use clap::{crate_authors, crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger;
 use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::env;
 use transportation::EncryptionPerspective;
 
@@ -99,7 +101,14 @@ crate fn create_app() -> App<'static, 'static> {
         via,
         command,
     ];
-    let server_args = vec![server_config, client_config, forced_command, su_mode, identity.clone(), port.clone()];
+    let server_args = vec![
+        server_config.clone(),
+        client_config.clone(),
+        forced_command,
+        su_mode,
+        identity.clone(),
+        port.clone(),
+    ];
 
     let subcommands = vec![
         SubCommand::with_name("client")
@@ -128,6 +137,8 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
         SubCommand::with_name("copy")
             .about("Copy files from any number of sources to one destination.")
+            .arg(client_config)
+            .arg(server_config)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
             .arg(identity.clone()),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
@@ -143,6 +154,16 @@ crate fn create_app() -> App<'static, 'static> {
 }
 
 fn create_matches() -> ArgMatches<'static> {
+    trace!("Parsing arguments");
+    if let Ok(matches) = create_app().get_matches_from_safe(::std::env::args()) {
+        return matches;
+    }
+    trace!("Trying implicit 'client'");
+    let mut args2: Vec<String> = ::std::env::args().collect();
+    args2.insert(1, "client".to_string());
+    if let Ok(matches) = create_app().get_matches_from_safe(args2) {
+        return matches;
+    }
     create_app().get_matches()
 }
 

@@ -50,9 +50,6 @@ fn identity_bytes_initializer() -> Vec<u8> {
 
 crate fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
     trace!("get_peer_id for peer {:?}", peer);
-    if arg::mode() == "copy" && peer.is_none() {
-        panic!();
-    }
     if peer.is_none() {
         return IDENTITY_BYTES.to_vec();
     }
@@ -81,6 +78,7 @@ crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
     if let Some(data) = crate::conf::default_knock() {
         return data;
     }
+    trace!("Failed to load knock from config");
     get_peer_id(peer)[24..].to_vec()
 }
 
@@ -140,6 +138,7 @@ crate fn knock_port(peer: Option<&str>) -> u16 {
         iter_count += 1;
         ring::pbkdf2::derive(&ring::digest::SHA512, iter_count, b"knock", &old_data[..], &mut data[..]);
     }
+    trace!("Calculated knock port: {:?}", result);
     result
 }
 

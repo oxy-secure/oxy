@@ -45,6 +45,16 @@ impl Oxy {
         *self.internal.message_claim.borrow_mut() = true;
     }
 
+    fn qualify_path(&self, path: String) -> PathBuf {
+        let mut path: PathBuf = path.into();
+        if !path.is_absolute() && self.internal.pty.borrow_mut().is_some() {
+            let mut base_path: PathBuf = self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd().into();
+            base_path.push(path);
+            path = base_path;
+        }
+        path
+    }
+
     pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) -> Result<(), String> {
         debug!("Recieved message {}", message_number);
         trace!("Received message {}: {:?}", message_number, message);
@@ -237,12 +247,7 @@ impl Oxy {
             } => {
                 use std::io::{Seek, SeekFrom};
                 self.bob_only();
-                let mut path: PathBuf = path.into();
-                if !path.is_absolute() && self.internal.pty.borrow_mut().is_some() {
-                    let mut base_path: PathBuf = self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd().into();
-                    base_path.push(path);
-                    path = base_path;
-                }
+                let path = self.qualify_path(path);
                 let mut file = File::open(path).map_err(|_| "Failed to open file")?;
                 if let Some(offset_start) = offset_start {
                     file.seek(SeekFrom::Start(offset_start)).map_err(|_| "Start-seek failed")?;
@@ -564,6 +569,7 @@ impl Oxy {
             }
             StatRequest { path } => {
                 self.bob_only();
+                let path = self.qualify_path(path);
                 let info = symlink_metadata(path).map_err(|_| "Failed to stat")?;
                 let message = StatResult {
                     reference:         message_number,
@@ -581,6 +587,7 @@ impl Oxy {
             }
             ReadDir { path } => {
                 self.bob_only();
+                let path = self.qualify_path(path);
                 let mut results = Vec::new();
                 let dents = read_dir(path).map_err(|_| "read_dir failed")?;
                 for entry in dents {

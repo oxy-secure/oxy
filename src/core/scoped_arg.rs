@@ -1,4 +1,6 @@
 use clap::ArgMatches;
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use transportation::EncryptionPerspective::{self, Alice, Bob};
 
 pub(crate) struct OxyArg {
@@ -7,9 +9,20 @@ pub(crate) struct OxyArg {
 
 impl OxyArg {
     crate fn create(args: Vec<String>) -> OxyArg {
-        let app = crate::arg::create_app();
-        let matches = app.get_matches_from(&args);
+        let matches = OxyArg::make_matches(args);
         OxyArg { matches }
+    }
+
+    crate fn make_matches(mut args: Vec<String>) -> ArgMatches<'static> {
+        if let Ok(matches) = crate::arg::create_app().get_matches_from_safe(&args) {
+            return matches;
+        }
+        trace!("Trying implicit 'client'");
+        args.insert(1, "client".to_string());
+        if let Ok(matches) = crate::arg::create_app().get_matches_from_safe(&args) {
+            return matches;
+        }
+        crate::arg::create_app().get_matches_from(&args)
     }
 
     crate fn mode(&self) -> String {
