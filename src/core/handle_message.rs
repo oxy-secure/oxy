@@ -66,6 +66,9 @@ impl Oxy {
             Pong {} => {
                 *self.internal.last_message_seen.borrow_mut() = Some(Instant::now());
             }
+            Exit {} => {
+                crate::exit::exit(0);
+            }
             UsernameAdvertisement { username } => {
                 self.bob_only();
                 *self.internal.peer_user.borrow_mut() = Some(username);
@@ -187,7 +190,7 @@ impl Oxy {
                 // This is crude and temporary
                 // It'd be nice to like... check if we're actually waiting on a pipecommand/if
                 // we're doing anything else also
-                self.exit(0);
+                crate::exit::exit(0);
             }
             #[cfg(unix)]
             PtyRequest { command } => {

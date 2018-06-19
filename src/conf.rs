@@ -2,6 +2,7 @@ use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::{
+    collections::BTreeMap,
     fs::File,
     io::Read,
     net::{SocketAddr, ToSocketAddrs},
@@ -97,6 +98,15 @@ crate fn server_identity() -> Option<&'static str> {
     }
 }
 
+crate fn default_server_knock() -> Option<Vec<u8>> {
+    Some(
+        ::data_encoding::BASE32_NOPAD
+            .decode(CONF.server.as_ref()?.as_table()?.get("knock")?.as_str()?.as_bytes())
+            .ok()?
+            .to_vec(),
+    )
+}
+
 crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
     debug!("Trying to load a client identity for {}", peer);
     match &CONF.client {
@@ -163,6 +173,70 @@ crate fn table_for_dest(dest: &str) -> Option<::std::collections::BTreeMap<Strin
         _ => (),
     }
     None
+}
+
+crate fn clients() -> BTreeMap<String, BTreeMap<String, toml::Value>> {
+    match &CONF.server {
+        Some(Table(table)) => {
+            let clients = table.get("clients");
+            match clients {
+                Some(Array(clients)) => {
+                    let mut result = BTreeMap::new();
+                    for client in clients {
+                        if !client.is_table() {
+                            continue;
+                        }
+                        let client = client.as_table().unwrap();
+                        let name = client.get("name");
+                        if name.is_none() {
+                            continue;
+                        }
+                        let name = name.unwrap();
+                        if !name.is_str() {
+                            continue;
+                        }
+                        let name = name.as_str().unwrap().to_string();
+                        if result.contains_key(&name) {
+                            warn!("Duplicate configuration file entry detected");
+                            continue;
+                        }
+                        result.insert(name, client.clone());
+                    }
+                    return result;
+                }
+                _ => (),
+            }
+        }
+        _ => (),
+    }
+    BTreeMap::new()
+}
+
+crate fn client(client: &str) -> Option<BTreeMap<String, toml::Value>> {
+    clients().get(client).map(|x| x.clone())
+}
+
+crate fn pubkey_for_client(client: &str) -> Option<Vec<u8>> {
+    let clients = clients();
+    let client = clients.get(client)?;
+    let key = client.get("pubkey")?;
+    let key = key.as_str()?;
+    let key = ::data_encoding::BASE32_NOPAD.decode(key.as_bytes()).ok()?;
+    Some(key.to_vec())
+}
+
+crate fn psk_for_client(client: &str) -> Option<Vec<u8>> {
+    let client = self::client(client)?;
+    Some(
+        ::data_encoding::BASE32_NOPAD
+            .decode(client.get("psk")?.as_str()?.as_bytes())
+            .ok()?
+            .to_vec(),
+    )
+}
+
+crate fn client_names() -> Vec<String> {
+    clients().keys().map(|x| x.to_string()).collect()
 }
 
 crate fn host_for_dest(dest: &str) -> String {

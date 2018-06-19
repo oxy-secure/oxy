@@ -43,6 +43,7 @@ pub fn run() {
         "reverse-client" => client::reverse_client(),
         "guide" => guide::print_guide(),
         "copy" => copy::run(),
+        "keygen" => keys::keygen(),
         _ => unreachable!(),
     }
 }

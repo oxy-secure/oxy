@@ -32,7 +32,7 @@ fn identity_bytes_initializer() -> Vec<u8> {
         warn!("No identity provided.");
         return Vec::new();
     }
-    if arg::mode() == "guide" {
+    if arg::mode() == "guide" || arg::mode() == "keygen" {
         return Vec::new();
     }
     if perspective() == Alice {
@@ -69,6 +69,12 @@ crate fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
 }
 
 crate fn static_key(peer: Option<&str>) -> Vec<u8> {
+    if peer.is_some() {
+        let psk = crate::conf::psk_for_client(peer.unwrap());
+        if psk.is_some() {
+            return psk.unwrap();
+        }
+    }
     let id = get_peer_id(peer);
     id[12..24].to_vec()
 }
@@ -134,8 +140,26 @@ crate fn knock_port(peer: Option<&str>) -> u16 {
     result
 }
 
+crate fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
+    for name in crate::conf::client_names() {
+        let confkey = crate::conf::pubkey_for_client(&name);
+        if confkey.is_some() && &confkey.unwrap()[..] == key {
+            debug!("Found peer name: {:?}", name);
+            return Some(name);
+        }
+    }
+    None
+}
+
 crate fn validate_peer_public_key(key: &[u8], peer: Option<&str>) -> bool {
-    let pubkey = asymmetric_key(peer);
+    if peer.is_some() {
+        let peer = peer.unwrap();
+        let pubkey = crate::conf::pubkey_for_client(peer);
+        if pubkey.is_some() {
+            return key == &pubkey.unwrap()[..];
+        }
+    }
+    let pubkey = asymmetric_key(None);
     key == pubkey.public_key_bytes()
 }
 
@@ -154,4 +178,18 @@ crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
 
 crate fn init() {
     ::lazy_static::initialize(&IDENTITY_BYTES);
+}
+
+crate fn keygen() {
+    let asym = ring::signature::Ed25519KeyPair::generate_pkcs8(&*transportation::RNG).unwrap();
+    println!("privkey = {:?}", ::data_encoding::BASE32_NOPAD.encode(&asym[..]));
+    let asym = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&asym)).unwrap();
+    let pubkey = ::data_encoding::BASE32_NOPAD.encode(asym.public_key_bytes());
+    println!("pubkey = {:?}", pubkey);
+    let mut knock = [0u8; 12];
+    ::transportation::RNG.fill(&mut knock).unwrap();
+    println!("knock = {:?}", ::data_encoding::BASE32_NOPAD.encode(&knock));
+    let mut psk = [0u8; 12];
+    ::transportation::RNG.fill(&mut psk).unwrap();
+    println!("psk = {:?}", ::data_encoding::BASE32_NOPAD.encode(&psk));
 }
