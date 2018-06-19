@@ -55,7 +55,12 @@ crate fn create_app() -> App<'static, 'static> {
         .long("user")
         .takes_value(true)
         .help("The remote username to log in with. Only applicable for servers using --su-mode");
-    let via = Arg::with_name("via").long("via").takes_value(true).multiple(true).number_of_values(1);
+    let via = Arg::with_name("via")
+        .long("via")
+        .takes_value(true)
+        .multiple(true)
+        .number_of_values(1)
+        .help("Connect to a different oxy server first, then proxy traffic through the intermediary server.");
     let xforward = Arg::with_name("X Forwarding").short("X").help("Enable X forwarding");
     let trusted_xforward = Arg::with_name("Trusted X Forwarding").short("Y").help("Enable trusted X forwarding");
     let server_config = Arg::with_name("server config")
