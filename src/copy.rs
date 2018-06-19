@@ -73,7 +73,7 @@ impl CopyManager {
         connection.set_daemon();
         connection.set_peer_name(peer);
         let proxy = self.clone();
-        connection.set_post_auth_hook(Rc::new(move || {
+        connection.push_post_auth_hook(Rc::new(move || {
             proxy.post_auth_hook();
         }));
         self.i.connections.borrow_mut().insert(peer.to_string(), connection);

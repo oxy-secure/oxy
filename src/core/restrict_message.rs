@@ -19,7 +19,6 @@ impl Oxy {
     }
 
     fn restrict_forcedcommand(&self, message: OxyMessage) -> Result<OxyMessage, ()> {
-        debug!("Processing restrictions");
         let mut forced_command = self.matches(|x| x.value_of("forced command").map(|x| x.to_string()));
         let su_mode = self.matches(|x| x.is_present("su mode"));
         if su_mode {
@@ -35,6 +34,7 @@ impl Oxy {
         if forced_command.is_none() {
             return Ok(message);
         }
+        debug!("Processing restrictions");
         let forced_command = forced_command.unwrap();
 
         match message.clone() {

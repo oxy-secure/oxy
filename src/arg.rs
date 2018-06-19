@@ -55,6 +55,7 @@ crate fn create_app() -> App<'static, 'static> {
         .long("user")
         .takes_value(true)
         .help("The remote username to log in with. Only applicable for servers using --su-mode");
+    let via = Arg::with_name("via").long("via").takes_value(true).multiple(true).number_of_values(1);
     let xforward = Arg::with_name("X Forwarding").short("X").help("Enable X forwarding");
     let trusted_xforward = Arg::with_name("Trusted X Forwarding").short("Y").help("Enable trusted X forwarding");
     let server_config = Arg::with_name("server config")
@@ -90,6 +91,7 @@ crate fn create_app() -> App<'static, 'static> {
         server_config.clone(),
         client_config.clone(),
         user,
+        via,
         command,
     ];
     let server_args = vec![server_config, client_config, forced_command, su_mode, identity.clone(), port.clone()];

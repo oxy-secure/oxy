@@ -79,7 +79,7 @@ crate struct OxyInternal {
     response_watchers: RefCell<Vec<Rc<dyn Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
-    post_auth_hook: RefCell<Option<Rc<dyn Fn() -> ()>>>,
+    post_auth_hooks: RefCell<Vec<Rc<dyn Fn() -> ()>>>,
     send_hooks: RefCell<Vec<Rc<dyn Fn() -> bool>>>,
     pipecmd_reference: RefCell<Option<u64>>,
     stdin_bt: RefCell<Option<BufferedTransport>>,
@@ -88,6 +88,7 @@ crate struct OxyInternal {
     local_bind_cleaners: RefCell<HashMap<String, Rc<dyn Fn() -> ()>>>,
     kr_references: RefCell<HashMap<String, u64>>,
     peer_user: RefCell<Option<String>>,
+    message_claim: RefCell<bool>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -137,15 +138,19 @@ impl Oxy {
         *self.internal.is_daemon.borrow_mut() = true;
     }
 
-    pub fn set_post_auth_hook(&self, callback: Rc<dyn Fn() -> ()>) {
-        *self.internal.post_auth_hook.borrow_mut() = Some(callback);
+    pub fn push_post_auth_hook(&self, callback: Rc<dyn Fn() -> ()>) {
+        if self.is_encrypted() {
+            (callback)();
+        } else {
+            self.internal.post_auth_hooks.borrow_mut().push(callback);
+        }
     }
 
     pub fn push_send_hook(&self, callback: Rc<dyn Fn() -> bool>) {
         self.internal.send_hooks.borrow_mut().push(callback);
     }
 
-    fn queue_metacommand(&self, command: Vec<String>) {
+    crate fn queue_metacommand(&self, command: Vec<String>) {
         self.internal.metacommand_queue.borrow_mut().push(command);
     }
 
@@ -184,6 +189,7 @@ impl Oxy {
     }
 
     fn launch(&self) {
+        trace!("Launching");
         #[cfg(unix)]
         {
             let proxy = self.clone();
@@ -488,8 +494,9 @@ impl Oxy {
 
     fn do_post_auth(&self) {
         if self.perspective() == Alice {
-            self.run_batched_metacommands();
+            self.pop_metacommand();
             if !*self.internal.is_daemon.borrow() {
+                self.run_batched_metacommands();
                 #[cfg(unix)]
                 {
                     if self.interactive() {
@@ -513,8 +520,10 @@ impl Oxy {
         self.register_signal_handler();
         let proxy = self.clone();
         set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
-        if self.internal.post_auth_hook.borrow().is_some() {
-            (self.internal.post_auth_hook.borrow_mut().take().unwrap())();
+        let mut hooks = Vec::new();
+        ::std::mem::swap(&mut hooks, &mut *self.internal.post_auth_hooks.borrow_mut());
+        for hook in hooks {
+            (hook)();
         }
     }
 
