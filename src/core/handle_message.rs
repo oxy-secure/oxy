@@ -41,11 +41,19 @@ impl Oxy {
         borrow.splice(..start_len, hot_watchers.into_iter());
     }
 
+    crate fn claim_message(&self) {
+        *self.internal.message_claim.borrow_mut() = true;
+    }
+
     pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) -> Result<(), String> {
         debug!("Recieved message {}", message_number);
         trace!("Received message {}: {:?}", message_number, message);
         let message = self.restrict_message(message).map_err(|_| "Permission denied")?;
+        *self.internal.message_claim.borrow_mut() = false;
         self.dispatch_watchers(&message, message_number);
+        if *self.internal.message_claim.borrow() {
+            return Ok(());
+        }
         match message {
             DummyMessage { .. } => (),
             Reject { note, .. } => {
@@ -410,6 +418,7 @@ impl Oxy {
                 let stream2 = Rc::new(stream.clone());
                 stream.stream.set_notify(stream2);
                 self.internal.remote_streams.borrow_mut().insert(message_number, stream);
+                self.send(Success { reference: message_number });
             }
             CloseRemoteBind { reference } => {
                 let callback = self
@@ -640,6 +649,7 @@ impl Oxy {
                 for destination in destination {
                     sock.send_to(&knock, &destination).ok();
                 }
+                ::std::thread::sleep(::std::time::Duration::from_millis(500)); // TODO: Now HERE's a hack-and-a-half.
             }
             _ => {
                 debug!("A not-statically supported message type came through.");

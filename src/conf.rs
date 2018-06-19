@@ -129,18 +129,6 @@ crate fn client_identity() -> Option<&'static str> {
     client_identity_for_peer(&crate::arg::destination())
 }
 
-fn default_port(dest: &str) -> Vec<SocketAddr> {
-    let a = dest.to_socket_addrs();
-    if a.is_err() {
-        let a = (dest, 2600).to_socket_addrs();
-        if a.is_err() {
-            return Vec::new();
-        }
-        return a.unwrap().collect();
-    }
-    a.unwrap().collect()
-}
-
 fn host_part<'a>(dest: &'a str) -> &'a str {
     if dest.starts_with('[') {
         return dest.splitn(2, '[').nth(1).unwrap().splitn(2, ']').next().unwrap();
@@ -155,7 +143,7 @@ fn port_part(dest: &str) -> Option<u16> {
     dest.splitn(2, ':').nth(1).unwrap().parse().ok()
 }
 
-crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
+crate fn table_for_dest(dest: &str) -> Option<::std::collections::BTreeMap<String, toml::Value>> {
     match &CONF.client {
         Some(Table(table)) => {
             let servers = table.get("servers");
@@ -165,38 +153,92 @@ crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
                         let server = server.as_table().unwrap();
                         let name = server.get("name").unwrap().as_str().unwrap();
                         if name == dest {
-                            let host = server.get("host").map(|x| x.as_str().unwrap()).unwrap_or(host_part(dest));
-                            let port = server.get("port");
-                            let port = if let Some(port) = port {
-                                if port.is_integer() {
-                                    port.as_integer().unwrap() as u16
-                                } else {
-                                    port.as_str()
-                                        .expect("invalid port value in config")
-                                        .parse()
-                                        .expect("failed to parse port value from config")
-                                }
-                            } else {
-                                if let Some(port) = port_part(dest) {
-                                    port
-                                } else {
-                                    2600
-                                }
-                            };
-                            let result = (host, port).to_socket_addrs();
-                            if result.is_err() {
-                                return Vec::new();
-                            }
-                            return result.unwrap().collect();
+                            return Some(server.clone());
                         }
                     }
-                    default_port(dest)
                 }
-                _ => default_port(dest),
+                _ => (),
             }
         }
-        _ => default_port(dest),
+        _ => (),
     }
+    None
+}
+
+crate fn host_for_dest(dest: &str) -> String {
+    let table = table_for_dest(dest);
+    if table.is_none() {
+        return host_part(dest).to_string();
+    }
+    let table = table.unwrap();
+    let entry = table.get("host");
+    if entry.is_none() {
+        return host_part(dest).to_string();
+    }
+    let entry = entry.unwrap();
+    if !entry.is_str() {
+        warn!("Host value in config is not a string?");
+        return host_part(dest).to_string();
+    }
+    entry.as_str().unwrap().to_string()
+}
+
+fn conf_port_for_dest(dest: &str) -> Option<u16> {
+    if let Some(table) = table_for_dest(dest) {
+        let port = table.get("port");
+        if port.is_none() {
+            return None;
+        }
+        let port = port.unwrap();
+        if port.is_integer() {
+            return Some(port.as_integer().unwrap() as u16);
+        }
+        if port.is_str() {
+            let port = port.as_str().unwrap().parse();
+            if port.is_err() {
+                warn!("Invalid port value in config");
+                return None;
+            }
+            return Some(port.unwrap());
+        }
+        warn!("Invalid port value in config.");
+        return None;
+    }
+    None
+}
+
+crate fn port_for_dest(dest: &str) -> u16 {
+    let port = conf_port_for_dest(dest);
+    if port.is_some() {
+        return port.unwrap();
+    }
+    let port = port_part(dest);
+    if port.is_some() {
+        return port.unwrap();
+    }
+    return 2600;
+}
+
+crate fn canonicalize_destination(dest: &str) -> String {
+    let table = table_for_dest(dest);
+    if table.is_none() {
+        let port = port_part(dest);
+        let host = host_part(dest);
+        return format!("{}:{}", host, port.unwrap_or(2600));
+    }
+    let host = host_for_dest(dest);
+    let port = port_for_dest(dest);
+    format!("{}:{}", host, port)
+}
+
+crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
+    let host = host_for_dest(dest);
+    let port = port_for_dest(dest);
+    let result = (host.as_str(), port).to_socket_addrs();
+    if result.is_err() {
+        return Vec::new();
+    }
+    return result.unwrap().collect();
 }
 
 crate fn identity() -> Option<&'static str> {
