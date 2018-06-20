@@ -33,7 +33,6 @@ pub fn run() {
     debug!("Args processed");
     conf::init();
     debug!("Conf processed");
-    keys::init();
     match arg::mode().as_str() {
         "client" => client::run(),
         "reexec" => reexec::run(),

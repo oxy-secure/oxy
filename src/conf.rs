@@ -107,6 +107,40 @@ crate fn default_server_knock() -> Option<Vec<u8>> {
     )
 }
 
+crate fn default_client_knock() -> Option<Vec<u8>> {
+    Some(
+        ::data_encoding::BASE32_NOPAD
+            .decode(CONF.client.as_ref()?.as_table()?.get("knock")?.as_str()?.as_bytes())
+            .ok()?
+            .to_vec(),
+    )
+}
+
+crate fn peer_knock(peer: &str) -> Option<Vec<u8>> {
+    trace!("Doing peer_knock {:?}", peer);
+    let table = match crate::arg::mode().as_str() {
+        "server" => client(peer),
+        "client" => server(peer),
+        _ => None,
+    };
+    trace!("Conf search result: {:?}", table);
+    let table2 = table?;
+    trace!("Got table");
+    let knock = table2.get("knock");
+    trace!("Knock is: {:?}", knock);
+    let knock = knock?;
+
+    Some(::data_encoding::BASE32_NOPAD.decode(table2.get("knock")?.as_str()?.as_bytes()).ok()?)
+}
+
+crate fn default_knock() -> Option<Vec<u8>> {
+    match crate::arg::mode().as_str() {
+        "server" => default_server_knock(),
+        "client" => default_client_knock(),
+        _ => None,
+    }
+}
+
 crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
     debug!("Trying to load a client identity for {}", peer);
     match &CONF.client {
@@ -153,28 +187,6 @@ fn port_part(dest: &str) -> Option<u16> {
     dest.splitn(2, ':').nth(1).unwrap().parse().ok()
 }
 
-crate fn table_for_dest(dest: &str) -> Option<::std::collections::BTreeMap<String, toml::Value>> {
-    match &CONF.client {
-        Some(Table(table)) => {
-            let servers = table.get("servers");
-            match servers {
-                Some(Array(servers)) => {
-                    for server in servers {
-                        let server = server.as_table().unwrap();
-                        let name = server.get("name").unwrap().as_str().unwrap();
-                        if name == dest {
-                            return Some(server.clone());
-                        }
-                    }
-                }
-                _ => (),
-            }
-        }
-        _ => (),
-    }
-    None
-}
-
 crate fn clients() -> BTreeMap<String, BTreeMap<String, toml::Value>> {
     match &CONF.server {
         Some(Table(table)) => {
@@ -212,8 +224,49 @@ crate fn clients() -> BTreeMap<String, BTreeMap<String, toml::Value>> {
     BTreeMap::new()
 }
 
+crate fn servers() -> BTreeMap<String, BTreeMap<String, toml::Value>> {
+    match &CONF.client {
+        Some(Table(table)) => {
+            let servers = table.get("servers");
+            match servers {
+                Some(Array(servers)) => {
+                    let mut result = BTreeMap::new();
+                    for server in servers {
+                        if !server.is_table() {
+                            continue;
+                        }
+                        let server = server.as_table().unwrap();
+                        let name = server.get("name");
+                        if name.is_none() {
+                            continue;
+                        }
+                        let name = name.unwrap();
+                        if !name.is_str() {
+                            continue;
+                        }
+                        let name = name.as_str().unwrap().to_string();
+                        if result.contains_key(&name) {
+                            warn!("Duplicate configuration file entry detected");
+                            continue;
+                        }
+                        result.insert(name, server.clone());
+                    }
+                    return result;
+                }
+                _ => (),
+            }
+        }
+        _ => (),
+    }
+    BTreeMap::new()
+}
+
 crate fn client(client: &str) -> Option<BTreeMap<String, toml::Value>> {
     clients().get(client).map(|x| x.clone())
+}
+
+crate fn server(server: &str) -> Option<BTreeMap<String, toml::Value>> {
+    servers().get(server).map(|x| x.clone())
 }
 
 crate fn pubkey_for_client(client: &str) -> Option<Vec<u8>> {
@@ -240,7 +293,7 @@ crate fn client_names() -> Vec<String> {
 }
 
 crate fn host_for_dest(dest: &str) -> String {
-    let table = table_for_dest(dest);
+    let table = server(dest);
     if table.is_none() {
         return host_part(dest).to_string();
     }
@@ -258,7 +311,7 @@ crate fn host_for_dest(dest: &str) -> String {
 }
 
 fn conf_port_for_dest(dest: &str) -> Option<u16> {
-    if let Some(table) = table_for_dest(dest) {
+    if let Some(table) = server(dest) {
         let port = table.get("port");
         if port.is_none() {
             return None;
@@ -294,7 +347,7 @@ crate fn port_for_dest(dest: &str) -> u16 {
 }
 
 crate fn canonicalize_destination(dest: &str) -> String {
-    let table = table_for_dest(dest);
+    let table = server(dest);
     if table.is_none() {
         let port = port_part(dest);
         let host = host_part(dest);
