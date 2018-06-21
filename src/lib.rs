@@ -33,7 +33,6 @@ pub fn run() {
     debug!("Args processed");
     conf::init();
     debug!("Conf processed");
-    keys::init();
     match arg::mode().as_str() {
         "client" => client::run(),
         "reexec" => reexec::run(),
@@ -43,6 +42,7 @@ pub fn run() {
         "reverse-client" => client::reverse_client(),
         "guide" => guide::print_guide(),
         "copy" => copy::run(),
+        "keygen" => keys::keygen(),
         _ => unreachable!(),
     }
 }

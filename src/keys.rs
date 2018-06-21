@@ -32,7 +32,7 @@ fn identity_bytes_initializer() -> Vec<u8> {
         warn!("No identity provided.");
         return Vec::new();
     }
-    if arg::mode() == "guide" {
+    if arg::mode() == "guide" || arg::mode() == "keygen" {
         return Vec::new();
     }
     if perspective() == Alice {
@@ -46,10 +46,6 @@ fn identity_bytes_initializer() -> Vec<u8> {
         data_encoding::BASE32_NOPAD.encode(&bytes)
     );
     bytes
-}
-
-crate fn identity_string() -> String {
-    data_encoding::BASE32_NOPAD.encode(&*IDENTITY_BYTES)
 }
 
 crate fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
@@ -69,15 +65,27 @@ crate fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
 }
 
 crate fn static_key(peer: Option<&str>) -> Vec<u8> {
+    if let Some(key) = crate::conf::static_key(peer) {
+        return key;
+    }
     let id = get_peer_id(peer);
     id[12..24].to_vec()
 }
 
 crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
+    if let Some(peer) = peer {
+        if let Some(data) = crate::conf::peer_knock(peer) {
+            return data;
+        }
+    }
+    if let Some(data) = crate::conf::default_knock() {
+        return data;
+    }
     get_peer_id(peer)[24..].to_vec()
 }
 
 crate fn make_knock(peer: Option<&str>) -> Vec<u8> {
+    trace!("Calculating knock value {:?}", peer);
     make_knock_internal(peer, 0, 0)
 }
 
@@ -118,6 +126,7 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
 }
 
 crate fn knock_port(peer: Option<&str>) -> u16 {
+    trace!("Calculating knock port {:?}", peer);
     let mut data = knock_data(peer).to_vec();
     let mut iter_count = 5;
     let result;
@@ -134,8 +143,23 @@ crate fn knock_port(peer: Option<&str>) -> u16 {
     result
 }
 
+crate fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
+    for name in crate::conf::client_names() {
+        let confkey = crate::conf::pubkey_for_client(&name);
+        if confkey.is_some() && &confkey.unwrap()[..] == key {
+            debug!("Found peer name: {:?}", name);
+            return Some(name);
+        }
+    }
+    None
+}
+
 crate fn validate_peer_public_key(key: &[u8], peer: Option<&str>) -> bool {
-    let pubkey = asymmetric_key(peer);
+    trace!("Validating pubkey for {:?}", peer);
+    if let Some(conf_key) = crate::conf::public_key(peer) {
+        return key[..] == conf_key[..];
+    }
+    let pubkey = asymmetric_key(None);
     key == pubkey.public_key_bytes()
 }
 
@@ -147,11 +171,28 @@ fn asymmetric_key_from_seed(seed: &[u8]) -> Ed25519KeyPair {
 }
 
 crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
+    if let Some(key) = crate::conf::asymmetric_key(peer) {
+        if let Some(key) = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&key[..])).ok() {
+            return key;
+        } else {
+            warn!("Invalid privkey in config?");
+        }
+    }
     let id = get_peer_id(peer);
     debug!("Using identity data: {:?}", id);
     asymmetric_key_from_seed(&id[..12])
 }
 
-crate fn init() {
-    ::lazy_static::initialize(&IDENTITY_BYTES);
+crate fn keygen() {
+    let asym = ring::signature::Ed25519KeyPair::generate_pkcs8(&*transportation::RNG).unwrap();
+    println!("privkey = {:?}", ::data_encoding::BASE32_NOPAD.encode(&asym[..]));
+    let asym = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&asym)).unwrap();
+    let pubkey = ::data_encoding::BASE32_NOPAD.encode(asym.public_key_bytes());
+    println!("pubkey = {:?}", pubkey);
+    let mut knock = [0u8; 32];
+    ::transportation::RNG.fill(&mut knock).unwrap();
+    println!("knock = {:?}", ::data_encoding::BASE32_NOPAD.encode(&knock));
+    let mut psk = [0u8; 32];
+    ::transportation::RNG.fill(&mut psk).unwrap();
+    println!("psk = {:?}", ::data_encoding::BASE32_NOPAD.encode(&psk));
 }

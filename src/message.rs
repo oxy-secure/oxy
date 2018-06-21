@@ -8,6 +8,7 @@ pub enum OxyMessage {
     ProtocolVersionAnnounce { version: u64 },
     Ping { },
     Pong { },
+    Exit { },
     DummyMessage { data: Vec<u8> },
     BasicCommand { command: String },
     BasicCommandOutput { stdout: Vec<u8>, stderr: Vec<u8> },
