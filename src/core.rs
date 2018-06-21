@@ -342,6 +342,7 @@ impl Oxy {
                 continue;
             }
             if amt == 0 {
+                self.paint_progress_bar(1000);
                 self.log_info("File transfer completed");
                 debug!("Transfer finished: {}", reference);
                 to_remove.push(*reference);
@@ -351,7 +352,11 @@ impl Oxy {
                 data:      data[..amt].to_vec(),
             });
             *current_position += amt as u64;
-            self.paint_progress_bar((*current_position * 1000) / *cutoff_position);
+            if *cutoff_position != 0 {
+                self.paint_progress_bar((*current_position * 1000) / *cutoff_position);
+            } else {
+                self.paint_progress_bar(1000);
+            }
         }
         self.internal.transfers_out.borrow_mut().retain(|x| !to_remove.contains(&x.reference));
         if !to_remove.is_empty() {

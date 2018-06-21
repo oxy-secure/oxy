@@ -225,7 +225,7 @@ impl CopyManager {
                                                     data:      data.to_vec(),
                                                 });
                                                 *written.borrow_mut() += data.len() as u64;
-                                                let progress = (*written.borrow() * 1000) / len;
+                                                let progress = if len != 0 { (*written.borrow() * 1000) / len } else { 1000 };
                                                 proxy.print_progress(progress, &upload_filepart);
                                                 if data.is_empty() {
                                                     debug!("Final FileData sent. Waiting for confirmation.");
@@ -288,6 +288,7 @@ impl CopyManager {
                         connection.clone().watch(Rc::new(move |message, _| match message {
                             FileData { reference, data } if *reference == id => {
                                 if data.is_empty() {
+                                    proxy.print_progress(1000, &file_name);
                                     info!("Transfer finished.");
                                     proxy.tick_transfers();
                                     return true;
@@ -400,7 +401,7 @@ impl CopyManager {
                                     data:      buf[..result].to_vec(),
                                 });
                                 *written.borrow_mut() += result as u64;
-                                let progress = (*written.borrow() * 1000) / len;
+                                let progress = if len != 0 { (*written.borrow() * 1000) / len } else { 1000 };
                                 proxy.print_progress(progress, &file_name);
                                 if result == 0 {
                                     let proxy = proxy.clone();
@@ -412,6 +413,7 @@ impl CopyManager {
                                         }
                                         _ => false,
                                     }));
+                                    return true;
                                 }
                                 return false;
                             }

@@ -4,7 +4,11 @@ extern crate transportation;
 
 use parking_lot::Mutex;
 use std::{
-    fs::{metadata, remove_file, File}, io::Read, process::{Child, Command, Stdio}, thread::sleep, time::Duration,
+    fs::{metadata, remove_file, File},
+    io::Read,
+    process::{Child, Command, Stdio},
+    thread::sleep,
+    time::Duration,
 };
 use transportation::ring::rand::SecureRandom;
 
