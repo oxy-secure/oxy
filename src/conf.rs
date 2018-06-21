@@ -117,20 +117,12 @@ crate fn default_client_knock() -> Option<Vec<u8>> {
 }
 
 crate fn peer_knock(peer: &str) -> Option<Vec<u8>> {
-    trace!("Doing peer_knock {:?}", peer);
     let table = match crate::arg::mode().as_str() {
         "server" => client(peer),
         "client" => server(peer),
         _ => None,
     };
-    trace!("Conf search result: {:?}", table);
-    let table2 = table?;
-    trace!("Got table");
-    let knock = table2.get("knock");
-    trace!("Knock is: {:?}", knock);
-    let knock = knock?;
-
-    Some(::data_encoding::BASE32_NOPAD.decode(table2.get("knock")?.as_str()?.as_bytes()).ok()?)
+    Some(::data_encoding::BASE32_NOPAD.decode(table?.get("knock")?.as_str()?.as_bytes()).ok()?)
 }
 
 crate fn default_knock() -> Option<Vec<u8>> {
@@ -139,6 +131,95 @@ crate fn default_knock() -> Option<Vec<u8>> {
         "client" => default_client_knock(),
         _ => None,
     }
+}
+
+crate fn default_asymmetric_key() -> Option<Vec<u8>> {
+    match crate::arg::mode().as_str() {
+        "server" | "reexec" => ::data_encoding::BASE32_NOPAD
+            .decode(CONF.server.as_ref()?.as_table()?.get("privkey")?.as_str()?.as_bytes())
+            .ok(),
+        "client" => ::data_encoding::BASE32_NOPAD
+            .decode(CONF.client.as_ref()?.as_table()?.get("privkey")?.as_str()?.as_bytes())
+            .ok(),
+        _ => None,
+    }
+}
+
+crate fn peer_asymmetric_key(peer: &str) -> Option<Vec<u8>> {
+    match crate::arg::mode().as_str() {
+        "server" | "reexec" => ::data_encoding::BASE32_NOPAD
+            .decode(client(peer)?.get("privkey")?.as_str()?.as_bytes())
+            .ok(),
+        "client" => ::data_encoding::BASE32_NOPAD
+            .decode(server(peer)?.get("privkey")?.as_str()?.as_bytes())
+            .ok(),
+        _ => None,
+    }
+}
+
+crate fn peer_static_key(peer: &str) -> Option<Vec<u8>> {
+    match crate::arg::mode().as_str() {
+        "server" | "reexec" => ::data_encoding::BASE32_NOPAD.decode(client(peer)?.get("psk")?.as_str()?.as_bytes()).ok(),
+        "client" => ::data_encoding::BASE32_NOPAD.decode(server(peer)?.get("psk")?.as_str()?.as_bytes()).ok(),
+        _ => None,
+    }
+}
+
+crate fn peer_public_key(peer: &str) -> Option<Vec<u8>> {
+    match crate::arg::mode().as_str() {
+        "server" | "reexec" => ::data_encoding::BASE32_NOPAD
+            .decode(client(peer)?.get("pubkey")?.as_str()?.as_bytes())
+            .ok(),
+        "client" => ::data_encoding::BASE32_NOPAD
+            .decode(server(peer)?.get("pubkey")?.as_str()?.as_bytes())
+            .ok(),
+        _ => None,
+    }
+}
+
+crate fn default_static_key() -> Option<Vec<u8>> {
+    match crate::arg::mode().as_str() {
+        "server" | "reexec" => ::data_encoding::BASE32_NOPAD
+            .decode(CONF.server.as_ref()?.as_table()?.get("psk")?.as_str()?.as_bytes())
+            .ok(),
+        "client" => ::data_encoding::BASE32_NOPAD
+            .decode(CONF.client.as_ref()?.as_table()?.get("psk")?.as_str()?.as_bytes())
+            .ok(),
+        _ => None,
+    }
+}
+
+crate fn asymmetric_key(peer: Option<&str>) -> Option<Vec<u8>> {
+    if let Some(peer) = peer {
+        if let Some(key) = peer_asymmetric_key(peer) {
+            return Some(key);
+        }
+    }
+    if let Some(key) = default_asymmetric_key() {
+        return Some(key);
+    }
+    None
+}
+
+crate fn static_key(peer: Option<&str>) -> Option<Vec<u8>> {
+    if let Some(peer) = peer {
+        if let Some(key) = peer_static_key(peer) {
+            return Some(key);
+        }
+    }
+    if let Some(key) = default_static_key() {
+        return Some(key);
+    }
+    None
+}
+
+crate fn public_key(peer: Option<&str>) -> Option<Vec<u8>> {
+    if let Some(peer) = peer {
+        if let Some(key) = peer_public_key(peer) {
+            return Some(key);
+        }
+    }
+    None
 }
 
 crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
@@ -276,16 +357,6 @@ crate fn pubkey_for_client(client: &str) -> Option<Vec<u8>> {
     let key = key.as_str()?;
     let key = ::data_encoding::BASE32_NOPAD.decode(key.as_bytes()).ok()?;
     Some(key.to_vec())
-}
-
-crate fn psk_for_client(client: &str) -> Option<Vec<u8>> {
-    let client = self::client(client)?;
-    Some(
-        ::data_encoding::BASE32_NOPAD
-            .decode(client.get("psk")?.as_str()?.as_bytes())
-            .ok()?
-            .to_vec(),
-    )
 }
 
 crate fn client_names() -> Vec<String> {

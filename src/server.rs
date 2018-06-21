@@ -223,8 +223,10 @@ fn fork_and_handle(stream: TcpStream) {
         let fd2 = dup(fd).unwrap(); // We do this to clear O_CLOEXEC. It'd be nicer if F_SETFL could clear
                                     // O_CLOEXEC, but it can't~
 
-        let identity = crate::keys::identity_string();
-        let mut args = vec!["reexec".to_string(), format!("--fd={}", fd2), format!("--identity={}", identity)];
+        let mut args = vec!["reexec".to_string(), format!("--fd={}", fd2)];
+        if let Some(identity) = crate::arg::matches().value_of("identity") {
+            args.push(format!("--identity={}", identity));
+        }
         if let Some(command) = crate::arg::matches().value_of("forced command") {
             args.push(format!("--forced-command={}", command));
         }

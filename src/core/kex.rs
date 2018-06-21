@@ -78,9 +78,10 @@ impl Oxy {
                 if let Some(mut msg) = self.recv_naked() {
                     let version_indicator = msg.remove(0);
                     assert!(version_indicator == 0);
-                    let peer = self.internal.peer_name.borrow().clone();
+                    let mut peer = self.internal.peer_name.borrow().clone();
                     if peer.is_none() {
-                        *self.internal.peer_name.borrow_mut() = crate::keys::get_peer_for_public_key(&msg);
+                        peer = crate::keys::get_peer_for_public_key(&msg);
+                        *self.internal.peer_name.borrow_mut() = peer.clone();
                     }
                     if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
                         panic!("Incorrect client key");
