@@ -207,6 +207,7 @@ impl Oxy {
                     kill(proxy.internal.pty.borrow().as_ref().unwrap().child_pid, SIGTERM).ok();
                 }
                 if proxy.perspective() == Alice && !*proxy.internal.is_daemon.borrow() {
+                    eprint!("\r");
                     info!("Goodbye!");
                 }
             });
