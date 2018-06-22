@@ -72,7 +72,7 @@ impl Ui {
             let width = ::termion::terminal_size().unwrap().0 as u64;
             let percentage = progress / 10;
             let decimal = progress % 10;
-            let line1 = format!("Transfered: {}.{}%", percentage, decimal);
+            let line1 = format!("Transferred: {}.{}%", percentage, decimal);
             let barwidth: u64 = (width * percentage) / 100;
             let mut x = "=".repeat(barwidth as usize);
             if x.len() > 0 && percentage < 100 {
