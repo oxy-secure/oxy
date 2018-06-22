@@ -78,6 +78,7 @@ crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
     if let Some(data) = crate::conf::default_knock() {
         return data;
     }
+
     trace!("Failed to load knock from config");
     get_peer_id(peer)[24..].to_vec()
 }
@@ -171,6 +172,7 @@ fn asymmetric_key_from_seed(seed: &[u8]) -> Ed25519KeyPair {
 
 crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
     if let Some(key) = crate::conf::asymmetric_key(peer) {
+        debug!("Found key in config");
         if let Some(key) = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&key[..])).ok() {
             return key;
         } else {

@@ -339,14 +339,14 @@ impl Oxy {
                     reference: *reference,
                     data:      Vec::new(),
                 });
-                self.paint_progress_bar(1000);
+                self.paint_progress_bar(1000, 0);
                 self.log_info("File transfer completed");
                 debug!("Transfer finished with cutoff: {}", reference);
                 to_remove.push(*reference);
                 continue;
             }
             if amt == 0 {
-                self.paint_progress_bar(1000);
+                self.paint_progress_bar(1000, 0);
                 self.log_info("File transfer completed.");
                 debug!("Transfer finished: {}", reference);
                 to_remove.push(*reference);
@@ -357,9 +357,9 @@ impl Oxy {
             });
             *current_position += amt as u64;
             if *cutoff_position != 0 {
-                self.paint_progress_bar((*current_position * 1000) / *cutoff_position);
+                self.paint_progress_bar((*current_position * 1000) / *cutoff_position, amt as u64);
             } else {
-                self.paint_progress_bar(1000);
+                self.paint_progress_bar(1000, 0);
             }
         }
         self.internal.transfers_out.borrow_mut().retain(|x| !to_remove.contains(&x.reference));
@@ -368,8 +368,8 @@ impl Oxy {
         }
     }
 
-    fn paint_progress_bar(&self, progress: u64) {
-        self.internal.ui.borrow().as_ref().map(|x| x.paint_progress_bar(progress));
+    fn paint_progress_bar(&self, progress: u64, bytes: u64) {
+        self.internal.ui.borrow().as_ref().map(|x| x.paint_progress_bar(progress, bytes));
     }
 
     fn log_info(&self, message: &str) {

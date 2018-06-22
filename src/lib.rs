@@ -16,6 +16,7 @@ mod server;
 #[cfg(unix)]
 mod tuntap;
 mod ui;
+mod util;
 
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};

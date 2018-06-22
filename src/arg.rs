@@ -63,18 +63,19 @@ crate fn create_app() -> App<'static, 'static> {
         .multiple(true)
         .number_of_values(1)
         .help("Connect to a different oxy server first, then proxy traffic through the intermediary server.");
-    let xforward = Arg::with_name("X Forwarding").short("X").help("Enable X forwarding");
-    let trusted_xforward = Arg::with_name("Trusted X Forwarding").short("Y").help("Enable trusted X forwarding");
+    let xforward = Arg::with_name("X Forwarding").short("X").long("x-forwarding").help("Enable X forwarding");
+    let trusted_xforward = Arg::with_name("Trusted X Forwarding")
+        .short("Y")
+        .long("trusted-x-forwarding")
+        .help("Enable trusted X forwarding");
     let server_config = Arg::with_name("server config")
         .long("server-config")
         .help("Path to server.conf")
-        .default_value("~/.config/oxy/server.conf")
-        .display_order(101);
+        .default_value("~/.config/oxy/server.conf");
     let client_config = Arg::with_name("client config")
         .long("client-config")
         .help("Path to client.conf")
-        .default_value("~/.config/oxy/client.conf")
-        .display_order(100);
+        .default_value("~/.config/oxy/client.conf");
     let forced_command = Arg::with_name("forced command")
         .long("forced-command")
         .help("Restrict command execution to the specified command")
@@ -88,6 +89,7 @@ crate fn create_app() -> App<'static, 'static> {
         .help("Bypass safety restrictions intended to avoid privilege elevation");
     let compression = Arg::with_name("compression")
         .short("C")
+        .long("compress")
         .help("Enable ZLIB format compression of all transmitted data");
     let client_args = vec![
         metacommand.clone(),

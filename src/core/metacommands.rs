@@ -315,7 +315,7 @@ impl Oxy {
                                                         *downloaded_bytes.borrow_mut() += data.len() as u64;
                                                         let a = *downloaded_bytes.borrow();
                                                         let progress = (a * 1000) / len;
-                                                        proxy.paint_progress_bar(progress);
+                                                        proxy.paint_progress_bar(progress, data.len() as u64);
                                                         return false;
                                                     }
                                                 }

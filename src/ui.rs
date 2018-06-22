@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use shlex;
-use std::{cell::RefCell, fs::File, io::Write, rc::Rc};
+use std::{cell::RefCell, fs::File, io::Write, rc::Rc, time::Instant};
 #[cfg(unix)]
 use termion::{
     self,
@@ -12,12 +12,15 @@ use transportation::{BufferedTransport, Notifiable, Notifies};
 
 #[derive(Clone)]
 crate struct Ui {
-    notify_hook:   Rc<RefCell<Option<Rc<dyn Notifiable>>>>,
-    underlying:    BufferedTransport,
-    messages:      Rc<RefCell<Vec<UiMessage>>>,
-    platform:      Rc<RefCell<UiPlatformData>>,
-    prev_progress: Rc<RefCell<u64>>,
-    escapestate:   Rc<RefCell<u64>>,
+    notify_hook:         Rc<RefCell<Option<Rc<dyn Notifiable>>>>,
+    underlying:          BufferedTransport,
+    messages:            Rc<RefCell<Vec<UiMessage>>>,
+    platform:            Rc<RefCell<UiPlatformData>>,
+    prev_progress:       Rc<RefCell<u64>>,
+    escapestate:         Rc<RefCell<u64>>,
+    progress_start_time: Rc<RefCell<Option<Instant>>>,
+    progress_prev_time:  Rc<RefCell<Option<Instant>>>,
+    progress_bytes:      Rc<RefCell<u64>>,
 }
 
 #[cfg(unix)]
@@ -39,12 +42,15 @@ impl Ui {
             debug!("Creating a UI");
             let platform = UiPlatformData { raw: None };
             let ui = Ui {
-                notify_hook:   Rc::new(RefCell::new(None)),
-                underlying:    BufferedTransport::from(0),
-                platform:      Rc::new(RefCell::new(platform)),
-                messages:      Rc::new(RefCell::new(Vec::new())),
-                prev_progress: Rc::new(RefCell::new(0)),
-                escapestate:   Rc::new(RefCell::new(0)),
+                notify_hook:         Rc::new(RefCell::new(None)),
+                underlying:          BufferedTransport::from(0),
+                platform:            Rc::new(RefCell::new(platform)),
+                messages:            Rc::new(RefCell::new(Vec::new())),
+                prev_progress:       Rc::new(RefCell::new(1000)),
+                escapestate:         Rc::new(RefCell::new(0)),
+                progress_start_time: Rc::new(RefCell::new(None)),
+                progress_prev_time:  Rc::new(RefCell::new(None)),
+                progress_bytes:      Rc::new(RefCell::new(0)),
             };
             let ui2 = ui.clone();
             ui.underlying.set_notify(Rc::new(ui2));
@@ -61,9 +67,16 @@ impl Ui {
         }
     }
 
-    crate fn paint_progress_bar(&self, progress: u64) {
+    crate fn paint_progress_bar(&self, progress: u64, bytes: u64) {
         #[cfg(unix)]
         {
+            if progress < *self.prev_progress.borrow_mut() {
+                *self.progress_start_time.borrow_mut() = Some(Instant::now());
+                *self.progress_bytes.borrow_mut() = 0;
+            }
+
+            *self.progress_bytes.borrow_mut() += bytes;
+
             if progress == *self.prev_progress.borrow() {
                 return;
             }
@@ -72,7 +85,14 @@ impl Ui {
             let width = ::termion::terminal_size().unwrap().0 as u64;
             let percentage = progress / 10;
             let decimal = progress % 10;
-            let line1 = format!("Transferred: {}.{}%", percentage, decimal);
+            let bytes = *self.progress_bytes.borrow();
+            let seconds = self.progress_start_time.borrow().as_ref().map(|x| x.elapsed().as_secs()).unwrap_or(0);
+            let throughput = crate::util::format_throughput(bytes, seconds);
+            let bytes = crate::util::format_bytes(bytes);
+            let line1 = format!(
+                "Transferred: {}.{}%, {} bytes, {} seconds, throughput: {}",
+                percentage, decimal, bytes, seconds, throughput
+            );
             let barwidth: u64 = (width * percentage) / 100;
             let mut x = "=".repeat(barwidth as usize);
             if x.len() > 0 && percentage < 100 {
