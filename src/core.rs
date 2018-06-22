@@ -97,11 +97,15 @@ crate struct OxyInternal {
 
 impl Oxy {
     fn alice_only(&self) {
-        assert!(self.perspective() == Alice);
+        if !(self.perspective() == Alice) {
+            panic!("The peer sent a message that is only acceptable for a server to send to a client, but I am not a client");
+        }
     }
 
     fn bob_only(&self) {
-        assert!(self.perspective() == Bob);
+        if !(self.perspective() == Bob) {
+            panic!("The peer sent a message that is only acceptable for a client to send to a server, but I am not a server");
+        }
     }
 
     fn perspective(&self) -> transportation::EncryptionPerspective {
@@ -202,7 +206,7 @@ impl Oxy {
                     use nix::sys::signal::{kill, Signal::*};
                     kill(proxy.internal.pty.borrow().as_ref().unwrap().child_pid, SIGTERM).ok();
                 }
-                if proxy.perspective() == Alice {
+                if proxy.perspective() == Alice && !*proxy.internal.is_daemon.borrow() {
                     info!("Goodbye!");
                 }
             });
@@ -311,7 +315,7 @@ impl Oxy {
 
     fn service_transfers(&self) {
         if !self.has_write_space() {
-            debug!("Write buffer full!  Holding off on servicing transfers.");
+            debug!("Write buffer full! Holding off on servicing transfers.");
             return;
         }
         let mut to_remove = Vec::new();
@@ -343,7 +347,7 @@ impl Oxy {
             }
             if amt == 0 {
                 self.paint_progress_bar(1000);
-                self.log_info("File transfer completed");
+                self.log_info("File transfer completed.");
                 debug!("Transfer finished: {}", reference);
                 to_remove.push(*reference);
             }
@@ -500,6 +504,7 @@ impl Oxy {
     fn do_post_auth(&self) {
         if self.perspective() == Alice {
             self.pop_metacommand();
+            self.activate_compression();
             if !*self.internal.is_daemon.borrow() {
                 self.run_batched_metacommands();
                 #[cfg(unix)]
@@ -529,6 +534,16 @@ impl Oxy {
         ::std::mem::swap(&mut hooks, &mut *self.internal.post_auth_hooks.borrow_mut());
         for hook in hooks {
             (hook)();
+        }
+    }
+
+    fn activate_compression(&self) {
+        if crate::arg::matches().is_present("compression") {
+            // This v is intended to block compression for via forwarders, because they'll
+            // just be handling encrypted data, which isn't very compressible
+            if !*self.internal.is_daemon.borrow() || crate::arg::mode() == "copy" {
+                self.send(CompressionRequest { compression_type: 0 });
+            }
         }
     }
 
@@ -724,7 +739,12 @@ impl Oxy {
         if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
             self.exit(0);
         }
-        for message in self.internal.underlying_transport.borrow().as_ref().unwrap().recv_all_tolerant() {
+        loop {
+            let message = self.internal.underlying_transport.borrow().as_ref().unwrap().recv_tolerant();
+            if message.is_none() {
+                break;
+            }
+            let message = message.unwrap();
             let message_number = self.tick_incoming();
             if message.is_none() {
                 self.send(Reject {

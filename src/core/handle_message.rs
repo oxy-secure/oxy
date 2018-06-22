@@ -101,6 +101,57 @@ impl Oxy {
                     });
                 }
             }
+            CompressionRequest { compression_type } => {
+                self.bob_only();
+                if compression_type != 0 {
+                    Err("Unsupported compression algorithm")?;
+                }
+                let outbound_compression: bool = self
+                    .internal
+                    .underlying_transport
+                    .borrow()
+                    .as_ref()
+                    .expect("Shouldn't happen")
+                    .outbound_compression;
+                if !outbound_compression {
+                    debug!("Activating compression");
+                    self.send(CompressionStart { compression_type: 0 });
+                    self.internal
+                        .underlying_transport
+                        .borrow_mut()
+                        .as_mut()
+                        .expect("Shouldn't happen")
+                        .outbound_compression = true;
+                }
+            }
+            CompressionStart { compression_type } => {
+                if compression_type != 0 {
+                    panic!("Unknown compression algorithm");
+                }
+                self.internal
+                    .underlying_transport
+                    .borrow_mut()
+                    .as_mut()
+                    .expect("Shouldn't happen")
+                    .inbound_compression = true;
+                if !self
+                    .internal
+                    .underlying_transport
+                    .borrow()
+                    .as_ref()
+                    .expect("Shouldn't happen")
+                    .outbound_compression
+                {
+                    debug!("Activating compression.");
+                    self.send(CompressionStart { compression_type: 0 });
+                    self.internal
+                        .underlying_transport
+                        .borrow_mut()
+                        .as_mut()
+                        .expect("Shouldn't happen")
+                        .outbound_compression = true;
+                }
+            }
             PipeCommand { command } => {
                 self.bob_only();
                 use std::process::Stdio;

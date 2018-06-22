@@ -8,6 +8,7 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     rc::Rc,
+    time::Instant,
 };
 use transportation;
 
@@ -25,12 +26,14 @@ struct CopyManager {
 
 #[derive(Default)]
 struct CopyManagerInternal {
-    connections:       RefCell<HashMap<String, Oxy>>,
-    destination:       RefCell<String>,
-    sources:           RefCell<Vec<String>>,
-    synthetic_sources: RefCell<Vec<(Option<String>, String, String)>>,
-    auth_ticker:       RefCell<u64>,
-    progress:          RefCell<u64>,
+    connections:           RefCell<HashMap<String, Oxy>>,
+    destination:           RefCell<String>,
+    sources:               RefCell<Vec<String>>,
+    synthetic_sources:     RefCell<Vec<(Option<String>, String, String)>>,
+    auth_ticker:           RefCell<u64>,
+    progress:              RefCell<u64>,
+    throughput_total:      RefCell<u64>,
+    throughput_total_time: RefCell<Option<Instant>>,
 }
 
 impl CopyManager {
@@ -79,19 +82,57 @@ impl CopyManager {
         self.i.connections.borrow_mut().insert(peer.to_string(), connection);
     }
 
-    fn print_progress(&self, progress: u64, filename: &str) {
+    fn print_progress(&self, progress: u64, filename: &str, bytes: u64) {
         let prev = *self.i.progress.borrow();
         if progress < prev {
             print!("\n\n");
-        }
-        if *self.i.progress.borrow_mut() == progress {
-            return;
+            *self.i.throughput_total.borrow_mut() = 0;
+            *self.i.throughput_total_time.borrow_mut() = Some(Instant::now());
         }
         *self.i.progress.borrow_mut() = progress;
+
+        let mut total_seconds = self.i.throughput_total_time.borrow_mut().map(|x| x.elapsed().as_secs()).unwrap_or(1);
+        if total_seconds == 0 {
+            total_seconds = 1;
+        }
+        *self.i.throughput_total.borrow_mut() += bytes;
+        let total_bytes = *self.i.throughput_total.borrow();
+        let mut throughput = total_bytes / total_seconds;
+        let mut throughput_decimal = (total_bytes * 10) / total_seconds;
+        let mut unit = "B/s";
+
+        if throughput > 1024 {
+            throughput_decimal = (throughput * 10) / 1024;
+            throughput /= 1024;
+            unit = "KiB/s";
+        }
+
+        if throughput > 1024 {
+            throughput_decimal = (throughput * 10) / 1024;
+            throughput /= 1024;
+            unit = "MiB/s";
+        }
+
+        if throughput > 1024 {
+            throughput_decimal = (throughput * 10) / 1024;
+            throughput /= 1024;
+            unit = "GiB/s";
+        }
+
         let percentage = progress / 10;
         let decimal = progress % 10;
-        let line1 = format!("Transfering: {:?} Transfered: {}.{}%", filename, percentage, decimal);
-        let width = ::termion::terminal_size().unwrap().0 as u64;
+        let line1 = format!(
+            "Transfering: {:?} Transfered: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}.{} {}",
+            filename,
+            percentage,
+            decimal,
+            total_bytes,
+            total_seconds,
+            throughput,
+            throughput_decimal % 10,
+            unit
+        );
+        let width = ::termion::terminal_size().unwrap_or((80, 24)).0 as u64;
         let barwidth: u64 = (width * percentage) / 100;
         let mut line2 = "=".repeat(barwidth as usize);
         if line2.len() > 0 && percentage < 100 {
@@ -214,7 +255,11 @@ impl CopyManager {
                                                 if data.is_empty() && *written.borrow() < len {
                                                     debug!("Finished a chunk");
                                                     download_id.borrow_mut().take();
-                                                    dest_connection.notify_main_transport();
+                                                    let dest_connection = dest_connection.clone();
+                                                    transportation::set_timeout(
+                                                        Rc::new(move || dest_connection.notify_main_transport()),
+                                                        ::std::time::Duration::from_secs(0),
+                                                    );
                                                     return true;
                                                 }
                                                 if end.is_some() && *written.borrow() + data.len() as u64 > end.unwrap() {
@@ -226,7 +271,7 @@ impl CopyManager {
                                                 });
                                                 *written.borrow_mut() += data.len() as u64;
                                                 let progress = if len != 0 { (*written.borrow() * 1000) / len } else { 1000 };
-                                                proxy.print_progress(progress, &upload_filepart);
+                                                proxy.print_progress(progress, &upload_filepart, data.len() as u64);
                                                 if data.is_empty() {
                                                     debug!("Final FileData sent. Waiting for confirmation.");
                                                     let done = done.clone();
@@ -288,7 +333,7 @@ impl CopyManager {
                         connection.clone().watch(Rc::new(move |message, _| match message {
                             FileData { reference, data } if *reference == id => {
                                 if data.is_empty() {
-                                    proxy.print_progress(1000, &file_name);
+                                    proxy.print_progress(1000, &file_name, 0);
                                     info!("Transfer finished.");
                                     proxy.tick_transfers();
                                     return true;
@@ -301,7 +346,7 @@ impl CopyManager {
                                 }
                                 *written.borrow_mut() += data.len() as u64;
                                 let progress = (*written.borrow() * 1000) / len;
-                                proxy.print_progress(progress, &file_name);
+                                proxy.print_progress(progress, &file_name, data.len() as u64);
                                 return false;
                             }
                             Reject { reference, note } if *reference == id => {
@@ -402,7 +447,7 @@ impl CopyManager {
                                 });
                                 *written.borrow_mut() += result as u64;
                                 let progress = if len != 0 { (*written.borrow() * 1000) / len } else { 1000 };
-                                proxy.print_progress(progress, &file_name);
+                                proxy.print_progress(progress, &file_name, result as u64);
                                 if result == 0 {
                                     let proxy = proxy.clone();
                                     dest_connection.watch(Rc::new(move |message, _| match message {
