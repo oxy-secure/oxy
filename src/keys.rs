@@ -78,6 +78,7 @@ crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
     if let Some(data) = crate::conf::default_knock() {
         return data;
     }
+
     trace!("Failed to load knock from config");
     get_peer_id(peer)[24..].to_vec()
 }

@@ -122,7 +122,7 @@ impl CopyManager {
         let percentage = progress / 10;
         let decimal = progress % 10;
         let line1 = format!(
-            "Transfering: {:?} Transfered: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}.{} {}",
+            "Transferring: {:?} Transferred: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}.{} {}",
             filename,
             percentage,
             decimal,
