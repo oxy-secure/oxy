@@ -36,6 +36,10 @@ fn load_conf() -> Conf {
     result
 }
 
+crate fn has_server_conf() -> bool {
+    CONF.server.is_some()
+}
+
 fn load_from_home(path: &str) -> Option<toml::Value> {
     let mut path = path.to_string();
     if path.starts_with("~") {

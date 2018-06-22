@@ -162,7 +162,11 @@ crate fn create_app() -> App<'static, 'static> {
 
 fn create_matches() -> ArgMatches<'static> {
     trace!("Parsing arguments");
-    if let Ok(matches) = create_app().get_matches_from_safe(::std::env::args()) {
+    let basic = create_app().get_matches_from_safe(::std::env::args());
+    if basic.is_err() && basic.as_ref().unwrap_err().kind == ::clap::ErrorKind::HelpDisplayed {
+        return create_app().get_matches();
+    }
+    if let Ok(matches) = basic {
         return matches;
     }
     trace!("Trying implicit 'client'");

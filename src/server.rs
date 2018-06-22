@@ -224,8 +224,12 @@ fn fork_and_handle(stream: TcpStream) {
                                     // O_CLOEXEC, but it can't~
 
         let mut args = vec!["reexec".to_string(), format!("--fd={}", fd2)];
-        if let Some(identity) = crate::arg::matches().value_of("identity") {
-            args.push(format!("--identity={}", identity));
+        if crate::arg::matches().is_present("identity") {
+            if let Some(identity) = crate::arg::matches().value_of("identity") {
+                args.push(format!("--identity={}", identity));
+            }
+        } else if !crate::conf::has_server_conf() {
+            args.push(format!("--identity={}", crate::keys::identity_string()));
         }
         if let Some(command) = crate::arg::matches().value_of("forced command") {
             args.push(format!("--forced-command={}", command));

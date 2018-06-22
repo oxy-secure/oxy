@@ -170,6 +170,10 @@ fn asymmetric_key_from_seed(seed: &[u8]) -> Ed25519KeyPair {
     ring::signature::Ed25519KeyPair::from_seed_unchecked(bytes).unwrap()
 }
 
+crate fn identity_string() -> String {
+    data_encoding::BASE32_NOPAD.encode(&*IDENTITY_BYTES)
+}
+
 crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
     if let Some(key) = crate::conf::asymmetric_key(peer) {
         debug!("Found key in config");
