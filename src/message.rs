@@ -46,4 +46,6 @@ pub enum OxyMessage {
     KnockForward { destination: String, knock: Vec<u8> },
     AdvertiseXAuth { cookie: String },
     UsernameAdvertisement { username: String },
+    CompressionRequest { compression_type: u64 },
+    CompressionStart { compression_type: u64 },
 }

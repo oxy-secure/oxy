@@ -86,6 +86,9 @@ crate fn create_app() -> App<'static, 'static> {
     let unsafe_reexec = Arg::with_name("unsafe reexec")
         .long("unsafe-reexec")
         .help("Bypass safety restrictions intended to avoid privilege elevation");
+    let compression = Arg::with_name("compression")
+        .short("C")
+        .help("Enable ZLIB format compression of all transmitted data");
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -99,6 +102,7 @@ crate fn create_app() -> App<'static, 'static> {
         client_config.clone(),
         user,
         via,
+        compression.clone(),
         command,
     ];
     let server_args = vec![
@@ -139,6 +143,7 @@ crate fn create_app() -> App<'static, 'static> {
             .about("Copy files from any number of sources to one destination.")
             .arg(client_config)
             .arg(server_config)
+            .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
             .arg(identity.clone()),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
