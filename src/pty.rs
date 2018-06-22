@@ -1,4 +1,4 @@
-use libc::{ioctl, winsize, TIOCSWINSZ};
+use libc::{ioctl, winsize, TIOCSCTTY, TIOCSWINSZ};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use nix::{
@@ -42,6 +42,7 @@ impl Pty {
             }
             Ok(Child) => {
                 setsid().unwrap();
+                unsafe { ioctl(child_fd, TIOCSCTTY, 0) };
                 dup2(child_fd, 0).unwrap();
                 dup2(child_fd, 1).unwrap();
                 dup2(child_fd, 2).unwrap();
