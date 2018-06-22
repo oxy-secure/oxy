@@ -172,6 +172,7 @@ fn asymmetric_key_from_seed(seed: &[u8]) -> Ed25519KeyPair {
 
 crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
     if let Some(key) = crate::conf::asymmetric_key(peer) {
+        debug!("Found key in config");
         if let Some(key) = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&key[..])).ok() {
             return key;
         } else {

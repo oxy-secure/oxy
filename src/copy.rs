@@ -91,46 +91,16 @@ impl CopyManager {
         }
         *self.i.progress.borrow_mut() = progress;
 
-        let mut total_seconds = self.i.throughput_total_time.borrow_mut().map(|x| x.elapsed().as_secs()).unwrap_or(1);
-        if total_seconds == 0 {
-            total_seconds = 1;
-        }
+        let total_seconds = self.i.throughput_total_time.borrow_mut().map(|x| x.elapsed().as_secs()).unwrap_or(0);
         *self.i.throughput_total.borrow_mut() += bytes;
         let total_bytes = *self.i.throughput_total.borrow();
-        let mut throughput = total_bytes / total_seconds;
-        let mut throughput_decimal = (total_bytes * 10) / total_seconds;
-        let mut unit = "B/s";
-
-        if throughput > 1024 {
-            throughput_decimal = (throughput * 10) / 1024;
-            throughput /= 1024;
-            unit = "KiB/s";
-        }
-
-        if throughput > 1024 {
-            throughput_decimal = (throughput * 10) / 1024;
-            throughput /= 1024;
-            unit = "MiB/s";
-        }
-
-        if throughput > 1024 {
-            throughput_decimal = (throughput * 10) / 1024;
-            throughput /= 1024;
-            unit = "GiB/s";
-        }
+        let throughput = crate::util::format_throughput(total_bytes, total_seconds);
 
         let percentage = progress / 10;
         let decimal = progress % 10;
         let line1 = format!(
-            "Transferring: {:?} Transferred: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}.{} {}",
-            filename,
-            percentage,
-            decimal,
-            total_bytes,
-            total_seconds,
-            throughput,
-            throughput_decimal % 10,
-            unit
+            "Transferring: {:?} Transferred: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}",
+            filename, percentage, decimal, total_bytes, total_seconds, throughput
         );
         let width = ::termion::terminal_size().unwrap_or((80, 24)).0 as u64;
         let barwidth: u64 = (width * percentage) / 100;
