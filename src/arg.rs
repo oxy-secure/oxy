@@ -80,10 +80,6 @@ crate fn create_app() -> App<'static, 'static> {
         .long("forced-command")
         .help("Restrict command execution to the specified command")
         .takes_value(true);
-    let su_mode = Arg::with_name("su mode")
-        .long("su-mode")
-        .help("Enable multi-user support by setting forced-command 'su - \"$USERNAME\"'. Note: The recommended way to use oxy is in single-user mode with one server process/user.")
-        .conflicts_with("forced command");
     let unsafe_reexec = Arg::with_name("unsafe reexec")
         .long("unsafe-reexec")
         .help("Bypass safety restrictions intended to avoid privilege elevation");
@@ -111,7 +107,6 @@ crate fn create_app() -> App<'static, 'static> {
         server_config.clone(),
         client_config.clone(),
         forced_command,
-        su_mode,
         identity.clone(),
         port.clone(),
     ];

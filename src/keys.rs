@@ -19,7 +19,7 @@ lazy_static! {
     static ref KNOCK_VALUES: Mutex<Vec<(u64, Option<String>, Vec<u8>)>> = Mutex::new(Vec::new());
 }
 
-const KNOCK_ROTATION_TIME: u64 = 60000;
+const KNOCK_ROTATION_TIME: u64 = 60;
 
 fn identity_bytes_initializer() -> Vec<u8> {
     if let Some(identity) = arg::matches().value_of("identity") {

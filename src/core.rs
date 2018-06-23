@@ -2,12 +2,8 @@ mod handle_message;
 mod kex;
 mod metacommands;
 mod restrict_message;
-mod scoped_arg;
 
-use self::{
-    kex::{KexData, NakedState},
-    scoped_arg::OxyArg,
-};
+use self::kex::{KexData, NakedState};
 use byteorder::{self, ByteOrder};
 #[cfg(unix)]
 use crate::pty::Pty;
@@ -74,7 +70,6 @@ crate struct OxyInternal {
     kex_data: RefCell<KexData>,
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
     last_message_seen: RefCell<Option<Instant>>,
-    arg: RefCell<Option<OxyArg>>,
     launched: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<dyn Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
@@ -110,17 +105,15 @@ impl Oxy {
     }
 
     fn perspective(&self) -> transportation::EncryptionPerspective {
-        self.internal.arg.borrow().as_ref().unwrap().perspective()
+        crate::arg::perspective()
     }
 
     pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
         let bt: BufferedTransport = transport.into();
         let mt = <MessageTransport as From<BufferedTransport>>::from(bt);
-        let arg = OxyArg::create(::std::env::args().collect());
         let internal = OxyInternal::default();
         *internal.naked_transport.borrow_mut() = Some(mt);
         *internal.last_message_seen.borrow_mut() = Some(Instant::now());
-        *internal.arg.borrow_mut() = Some(arg);
         let x = Oxy { internal: Rc::new(internal) };
         let proxy = x.clone();
         x.internal
@@ -184,13 +177,6 @@ impl Oxy {
 
     fn is_encrypted(&self) -> bool {
         self.internal.underlying_transport.borrow().is_some()
-    }
-
-    pub fn set_args(&self, args: Vec<String>) {
-        if *self.internal.launched.borrow() {
-            panic!("Attempted to change Oxy args after launch.");
-        }
-        *self.internal.arg.borrow_mut() = Some(OxyArg::create(args));
     }
 
     fn launch(&self) {
@@ -573,10 +559,6 @@ impl Oxy {
         }
         let reference = self.internal.pipecmd_reference.borrow_mut().unwrap();
         self.send(PipeCommandInput { reference, input });
-    }
-
-    fn matches<R>(&self, callback: impl FnOnce(&::clap::ArgMatches<'static>) -> R) -> R {
-        self.internal.arg.borrow().as_ref().unwrap().matches(callback)
     }
 
     fn run_batched_metacommands(&self) {

@@ -1,31 +1,78 @@
-On the server:
+Oxy can operate in two modes: "quickstart" mode, which uses no configuration, and "full" mode which requires additional setup.
+
+To use quickstart mode, run this command on the server side:
+
 oxy server
 
-On the client:
+
+This command will output a "--identity" value. This serves as the authentication information clients can use to connect to the server. This also serves as peer verification information, preventing man-in-the-middle attacks.
+
+On the client side, run the following command, substituting appropriate values:
+
 oxy client my.server.com --identity="the identity provided in the server output"
 
-Press F10 to get to an interactive command prompt from the client. You can start portforwards and transfer files from this prompt. Try "help" at this prompt.
+
+After you are connected, you can press F10 to get to an interactive metacommand prompt from the client. This prompt allows you to manage portforwards, VPN tunnels, file transfers, and more. If your terminal emulator is eating F10, you can also use <enter>~C (as with OpenSSH) to access this prompt.
 
 Press F12 to exit out of the client.
 
-Oxy checks for config files at $HOME/.config/oxy/server.conf and $HOME/.config/oxy/client.conf
+Oxy operates as a hidden service, and connection initiation occurs over two phases: a UDP "knock", followed by a TCP connection that will contain all subsequent connection data. The TCP connection defaults to port 2600; however, the UDP "knock" uses a port number between 1025 and 65535, derived from the server's "identity" value. By not using a standardized port, detection of oxy services (and thereby deployment of exploits targeting the oxy service) is made more difficult.
+
+A knock consists of a single inbound UDP packet containing a hash based on the "knock" portion of the identity information and the current time. After a successful knock packet is recieved, the server sends no UDP response, but instead establishes a temporary TCP bind that will process connections originating from the same address as the knock.
+
+Because knock packets use a timestamp to limit knock-reuse attacks, servers and clients must have synchronized clocks. Clock skew greater than 60 seconds is likely to cause the knock process to fail, resulting in a "connection refused" error when establishing the TCP connection.
+
+To use "full" mode, create a server configuration file on the server. By default, oxy checks for config files at $HOME/.config/oxy/server.conf and $HOME/.config/oxy/client.conf. If desired, these locations can be overridden using command line arguments.
 
 A sample server config is below:
 --------------------------------
-identity = "C5F2FZLCFQTXAZUBUREDACTED"
+privkey = "GBJQEAIBGACQMAZLMVYAIIQEEA6VNDALVMYY46LAMUXO2C4K2JDFKJFZB5FNVGPCGGBUELFCVW7WVIJDAMQQBJVNDXQRHEC4W5CSBVALHXE4KZFZZIAE2KJC6Y5STBK55IFYO5TD"
+my_pubkey = "U2WR3YITSBOLORJA2QFT3SOFMS44UACNFERPMOZJQVO6UC4HOZRQ" # not required
+knock = "MEPBVZ4332V23CJOOFTA"
+psk = "6E6WGDJDDN5AU7JEQGZA"
+
+[[clients]]
+name = "jmage"
+pubkey = "AU6MM3AQTMIPBBH26Q5YTIRDVIPIJHFKBKCKURJN4DVHH5XNBXIA"
+setuser = "jmage"
+
+[[clients]]
+name = "root"
+pubkey = "KT52H766WB3RZGN6FO2BKMYZLTOCRY4W4I62FLEEUORT3B5D7TUA"
+setuser = "root"
 --------------------------------
+
+Values for use in this file may be generated using the `oxy keygen` command. "knock" and "psk" values are pure random bytes, base32 encoded. "privkey" and "pubkey" values correspond to Ed25519 keypairs.
+
+The `oxy keygen` command outputs a private key along with the matching public key. These values are not intended to be used together in the same configuration file: a private key in a client configuration file should have its matching public key placed in the server configuration file. Similarly, the public key for a server private key should be placed in a client config.
+
+The "setuser" directive is used when the oxy server is running as root. In this case, when a connection is established based on the relevant public key, the server-side connection process will set its privileges to the privileges of the specified user.
+
+When the server is running as root, if no "setuser" directive was processed, the connection process will terminate, preventing connections from inappropriately retaining root privileges. When the server is not running as root, no setuser directive is required and connections with no setuser directive will retain the original privilege level of the server process.
 
 A sample client config is below:
 --------------------------------
 [[servers]]
-name = "banana"
-host = "localhost"
-port = "2600"
-identity = "REDACTED"
+name = "banana" # You can connect to this client by typing 'oxy banana'
+host = "localhost" # This is the actual hostname used for address resolution
+port = "2600" # This is the TCP port used for the connection after the knock process is completed
+pubkey = "U2WR3YITSBOLORJA2QFT3SOFMS44UACNFERPMOZJQVO6UC4HOZRQ" # This is the server's public key. Kinda like a known_hosts entry, except mandatory.
+privkey = "GBJQEAIBGACQMAZLMVYAIIQEECVJ562PXCBMQXIEBCKDUZGIDPXJRHN47BXANCJB64XH3NEHKOHRJIJDAMQQABJ4YZWBBGYQ6CCPV5B3RGRCHKQ6QSOKUCUEVJCS3YHKOP3O2DOQ" # This is the client's private key - it does not correspond to the server's public key
+my_pubkey = "AU6MM3AQTMIPBBH26Q5YTIRDVIPIJHFKBKCKURJN4DVHH5XNBXIA" # not required
+psk = "6E6WGDJDDN5AU7JEQGZA" # This is the same value as the the PSK on the server. It's just pure entropy, base32'd. You can generate a value with `oxy keygen`
+knock = "MEPBVZ4332V23CJOOFTA" # This is the same value as the knock value on the server. It's just pure entropy, base32'd. You can generate a random value with `oxy keygen`
 
 [[servers]]
 name = "kiwi"
-host = "192.168.0.12"
+host = "192.168.111.1"
 port = "2600"
-identity = "REDACTED"
+identity = "A2ALFEOWPNCR3HI4GITUSU6RDHUXMOFMOXC66IJKYDTBH4DDXO445PZQEU"
+
+[[servers]]
+name = "qzx"
+host = "localhost"
+privkey = "GBJQEAIBGACQMAZLMVYAIIQEEAZ2CC6JARMCKVXAK6XGTLKHDQ34KFF2HXVFBYGOID7OQIDUJGI3BIJDAMQQAVH3UP755MDXDSM34K5UCUZRSXG4FDRZNYR5UKWIJI5DHWD2H7HI"
+pubkey = "U2WR3YITSBOLORJA2QFT3SOFMS44UACNFERPMOZJQVO6UC4HOZRQ"
+psk = "6E6WGDJDDN5AU7JEQGZA"
+knock = "MEPBVZ4332V23CJOOFTA"
 ---------------------------------
