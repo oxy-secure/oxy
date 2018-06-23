@@ -63,6 +63,11 @@ crate fn create_app() -> App<'static, 'static> {
         .multiple(true)
         .number_of_values(1)
         .help("Connect to a different oxy server first, then proxy traffic through the intermediary server.");
+    let verbose = Arg::with_name("verbose")
+        .long("verbose")
+        .multiple(true)
+        .short("v")
+        .help("Increase debugging output");
     let xforward = Arg::with_name("X Forwarding").short("X").long("x-forwarding").help("Enable X forwarding");
     let trusted_xforward = Arg::with_name("Trusted X Forwarding")
         .short("Y")
@@ -101,6 +106,7 @@ crate fn create_app() -> App<'static, 'static> {
         user,
         via,
         compression.clone(),
+        verbose.clone(),
         command,
     ];
     let server_args = vec![
@@ -109,6 +115,7 @@ crate fn create_app() -> App<'static, 'static> {
         forced_command,
         identity.clone(),
         port.clone(),
+        verbose.clone(),
     ];
 
     let subcommands = vec![
@@ -117,7 +124,8 @@ crate fn create_app() -> App<'static, 'static> {
             .args(&client_args)
             .arg(Arg::with_name("destination").index(1).required(true)),
         SubCommand::with_name("reexec")
-            .about("Service a single oxy connection. Communicates on stdio by default.")
+            .about("Service a single oxy connection. Not intended to be run directly, run by oxy server")
+            .setting(AppSettings::Hidden)
             .arg(Arg::with_name("fd").long("fd").takes_value(true).required(true))
             .args(&server_args),
         SubCommand::with_name("server")
@@ -142,7 +150,8 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(server_config)
             .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
-            .arg(identity.clone()),
+            .arg(identity.clone())
+            .arg(verbose.clone()),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
     ];
@@ -183,8 +192,14 @@ crate fn batched_metacommands() -> Vec<String> {
 
 crate fn process() {
     ::lazy_static::initialize(&MATCHES);
+    let level = match matches().occurrences_of("verbose") {
+        0 => "info",
+        1 => "debug",
+        2 => "trace",
+        _ => "trace",
+    };
     if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "oxy=info");
+        env::set_var("RUST_LOG", format!("oxy={}", level));
     }
     env_logger::try_init().ok();
 }

@@ -55,7 +55,7 @@ impl Server {
     fn init(&self) {
         crate::reexec::safety_check();
         let knock_port = crate::keys::knock_port(None);
-        info!("Listening for knocks on port {}", knock_port);
+        info!("Listening for knocks on port UDP {}", knock_port);
         let bind_addr = format!("[::]:{}", knock_port).parse().unwrap();
         let mut knock_listener = UdpSocket::bind(&bind_addr);
         if knock_listener.is_err() {
