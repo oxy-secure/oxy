@@ -66,11 +66,7 @@ fn create_app() -> App<'static, 'static> {
                 "Open a remote PTY. \
                  Happens by default, usually not necessary",
             )
-            .arg(
-                Arg::with_name("command")
-                    .index(1)
-                    .default_value(&crate::arg::matches().value_of("command").unwrap_or("bash")),
-            ),
+            .arg(Arg::with_name("command").index(1)),
         SubCommand::with_name("sh")
             .about(
                 "Run a remote basic-command. \
@@ -185,8 +181,8 @@ impl Oxy {
                         });
                     }
                     "pty" => {
-                        let command = matches.value_of("command").unwrap().to_string();
-                        let id = self.send(PtyRequest { command });
+                        let command = matches.value_of("command").map(|x| x.to_string());
+                        let id = self.send(PtyRequest { command: command });
                         let proxy = self.clone();
                         #[cfg(unix)]
                         self.watch(Rc::new(move |message, _| match message {

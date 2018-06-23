@@ -228,6 +228,10 @@ crate fn public_key(peer: Option<&str>) -> Option<Vec<u8>> {
     None
 }
 
+crate fn get_setuser(peer: &str) -> Option<String> {
+    Some(client(peer)?.get("setuser")?.as_str()?.to_string())
+}
+
 crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
     debug!("Trying to load a client identity for {}", peer);
     match &CONF.client {

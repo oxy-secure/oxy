@@ -1,6 +1,11 @@
 use crate::{core::Oxy, reexec::reexec};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
+use nix::{
+    errno::Errno::ECHILD,
+    sys::wait::{waitpid, WaitPidFlag, WaitStatus},
+    Error::Sys,
+};
 use std::{
     cell::RefCell,
     net::IpAddr,
@@ -69,6 +74,38 @@ impl Server {
         });
         *self.i.knock_listener.borrow_mut() = Some(knock_listener);
         *self.i.knock_token.borrow_mut() = knock_token;
+        let proxy = self.clone();
+        transportation::set_signal_handler(Rc::new(move || proxy.harvest_children()));
+    }
+
+    fn harvest_children(&self) {
+        loop {
+            let result = waitpid(None, Some(WaitPidFlag::WNOHANG));
+            match &result {
+                Err(Sys(ECHILD)) => {
+                    // No children left to harvest
+                    return;
+                }
+                _ => (),
+            };
+            if result.is_err() {
+                warn!("Error in waitpid: {:?}", result);
+                return;
+            }
+            let result = result.unwrap();
+            match result {
+                WaitStatus::Exited(pid, status) => {
+                    info!("Child process {} exited with status {}", pid, status);
+                }
+                WaitStatus::StillAlive => {
+                    return;
+                }
+                _ => {
+                    warn!("Surprising waitpid result: {:?}", result);
+                    return;
+                }
+            }
+        }
     }
 
     fn destroy(&self) {

@@ -40,7 +40,9 @@ impl Oxy {
         match message.clone() {
             BasicCommand { .. } => Ok(BasicCommand { command: forced_command }),
             PipeCommand { .. } => Ok(PipeCommand { command: forced_command }),
-            PtyRequest { .. } => Ok(PtyRequest { command: forced_command }),
+            PtyRequest { .. } => Ok(PtyRequest {
+                command: Some(forced_command),
+            }),
             UsernameAdvertisement { .. } => Ok(message),
             PtySizeAdvertisement { .. } => Ok(message),
             PtyInput { .. } => Ok(message),

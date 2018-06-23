@@ -18,7 +18,7 @@ pub enum OxyMessage {
     PipeCommandExited { reference: u64 },
     Reject { reference: u64, note: String },
     Success { reference: u64 },
-    PtyRequest { command: String },
+    PtyRequest { command: Option<String> },
     PtySizeAdvertisement { w: u16, h: u16 },
     PtyInput { data: Vec<u8> },
     PtyOutput { data: Vec<u8> },
@@ -48,4 +48,5 @@ pub enum OxyMessage {
     UsernameAdvertisement { username: String },
     CompressionRequest { compression_type: u64 },
     CompressionStart { compression_type: u64 },
+    EnvironmentAdvertisement { key: String, value: String},
 }

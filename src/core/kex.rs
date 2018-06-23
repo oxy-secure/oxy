@@ -3,7 +3,10 @@ use crate::{core::Oxy, keys};
 use data_encoding::BASE32_NOPAD;
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    ffi::CString,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use transportation::{
     ring::{
         agreement::{self, agree_ephemeral, EphemeralPrivateKey, X25519},
@@ -69,7 +72,64 @@ impl Oxy {
         self.internal.naked_transport.borrow_mut().as_ref().unwrap().recv()
     }
 
+    fn drop_privs(&self) {
+        for (k, _) in ::std::env::vars() {
+            if ["LANG", "SHELL", "HOME", "TERM"].contains(&k.as_str()) {
+                continue;
+            }
+            ::std::env::remove_var(&k);
+        }
+        let peer = self.internal.peer_name.borrow().clone();
+        if let Some(peer) = peer {
+            let setuser = crate::conf::get_setuser(&peer);
+            if let Some(setuser) = setuser {
+                info!("Setting user: {}", setuser);
+                let pwent = crate::util::getpwnam(&setuser);
+                if pwent.is_err() {
+                    error!("Failed to gather user information for {}", setuser);
+                    ::std::process::exit(1);
+                }
+                let pwent = pwent.unwrap();
+                ::std::env::set_var("HOME", &pwent.home);
+                ::std::env::set_var("SHELL", &pwent.shell);
+                let gid = ::nix::unistd::Gid::from_raw(pwent.gid);
+                let cstr_setuser = CString::new(setuser).unwrap();
+                let grouplist = ::nix::unistd::getgrouplist(&cstr_setuser, gid);
+                if grouplist.is_err() {
+                    error!("Failed to get supplementary group list");
+                    ::std::process::exit(1);
+                }
+                let grouplist = grouplist.unwrap();
+                ::nix::unistd::setgroups(&grouplist[..]).unwrap();
+
+                ::nix::unistd::setgid(gid).unwrap();
+                ::nix::unistd::setuid(::nix::unistd::Uid::from_raw(pwent.uid)).unwrap();
+                let result = ::std::env::set_current_dir(pwent.home);
+                if result.is_err() {
+                    let result = ::std::env::set_current_dir("/");
+                    if result.is_err() {
+                        error!("Failed to change directory");
+                        ::std::process::exit(1);
+                    }
+                }
+                *self.internal.privs_dropped.borrow_mut() = true;
+            }
+        }
+
+        if ::nix::unistd::getuid().is_root() && !*self.internal.privs_dropped.borrow() {
+            error!("Running as root, but did not drop privileges. Exiting.");
+            ::std::process::exit(1);
+        }
+    }
+
     pub(super) fn notify_naked(&self) {
+        trace!("notify_naked called");
+
+        if self.internal.naked_transport.borrow_mut().as_mut().unwrap().is_closed() {
+            warn!("The peer hung up on us. Auth failed?");
+            ::std::process::exit(1);
+        }
+
         let state = self.internal.naked_state.borrow().clone();
         match state {
             NakedState::Reject => panic!(),
@@ -106,12 +166,17 @@ impl Oxy {
                 if let Some(msg) = self.recv_naked() {
                     debug!("Evidence message: {:?}", msg);
                     let kex_data = self.internal.kex_data.borrow_mut();
-                    signature::verify(
+                    let result = signature::verify(
                         &signature::ED25519,
                         Input::from(kex_data.connection_client_key.as_ref().unwrap()),
                         Input::from(kex_data.client_key_evidence.as_ref().unwrap()),
                         Input::from(&msg),
-                    ).unwrap();
+                    );
+                    if result.is_err() {
+                        error!("Client kex signature verification failed.");
+                        ::std::process::exit(1);
+                    }
+                    self.drop_privs();
                     ::std::mem::drop(kex_data);
                     let ephemeral = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
                     let peer_name = self.internal.peer_name.borrow().clone();
@@ -192,6 +257,12 @@ impl Oxy {
 fn assert_timestamp(timestamp: &[u8]) {
     let time = byteorder::BE::read_u64(&timestamp);
     let expected_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    assert!(time > (expected_time - 60));
-    assert!(time < (expected_time + 60));
+    if !((time > (expected_time - 60)) && (time < (expected_time + 60))) {
+        error!("Out-of-date kex signature detected. This either means clock-skew or malice.");
+        ::std::process::exit(1);
+        #[allow(unreachable_code)]
+        {
+            panic!();
+        }
+    }
 }

@@ -19,26 +19,63 @@ crate struct Pty {
 }
 
 impl Pty {
-    crate fn forkpty(command: &str) -> Pty {
-        let result = openpty(None, None).expect("openpty failed");
+    crate fn forkpty(command: Option<&str>) -> Result<Pty, ()> {
+        let result = openpty(None, None).map_err(|_| ())?;
         let parent_fd = result.master;
         let child_fd = result.slave;
         debug!("openpty results: {:?} {:?}", parent_fd, child_fd);
 
-        // Do some allocs before the fork, because you're not supposed to after
-        let sh = CString::new("/bin/sh").unwrap();
-        let sh2 = CString::new("/bin/sh").unwrap();
-        let minus_c = CString::new("-c").unwrap();
-        let command = CString::new(command).unwrap();
+        let exe;
+        let argv;
+        if command.is_some() {
+            let sh = CString::new("/bin/sh").unwrap();
+            let sh2 = CString::new("/bin/sh").unwrap();
+            let minus_c = CString::new("-c").unwrap();
+            let command = CString::new(command.unwrap()).unwrap();
+            exe = sh;
+            argv = vec![sh2, minus_c, command];
+        } else {
+            let shell = crate::util::current_user_pw();
+            if shell.is_err() {
+                error!("Failed to get user shell.");
+                ::std::process::exit(1);
+            }
+            let shell = shell.unwrap().shell;
+            let shell_fname = PathBuf::from(&shell).file_name().unwrap().to_str().unwrap().to_string();
+            exe = CString::new(shell).unwrap();
+            argv = vec![CString::new(format!("-{}", shell_fname)).unwrap()]; // A leading - makes it a login shell. Seems like a strange convention to
+                                                                             // me, but OK.
+        }
+
+        let mut pids: Vec<i32> = Vec::new();
+        if let Ok(dents) = ::std::fs::read_dir("/proc/self/fd/") {
+            // TODO: This is probably too platform-specific
+            for entry in dents {
+                if entry.is_err() {
+                    continue;
+                }
+                let entry = entry.unwrap();
+                let entry = entry.file_name().into_string();
+                if entry.is_err() {
+                    continue;
+                }
+                let fd: Result<i32, _> = entry.unwrap().parse();
+                debug!("Found fd: {:?}", fd);
+                if fd.is_err() {
+                    continue;
+                }
+                pids.push(fd.unwrap());
+            }
+        }
 
         match fork() {
             Ok(Parent { child }) => {
                 let bt = BufferedTransport::from(parent_fd);
-                Pty {
+                Ok(Pty {
                     underlying: bt,
                     fd:         parent_fd,
                     child_pid:  child,
-                }
+                })
             }
             Ok(Child) => {
                 setsid().unwrap();
@@ -47,7 +84,12 @@ impl Pty {
                 dup2(child_fd, 1).unwrap();
                 dup2(child_fd, 2).unwrap();
                 close(child_fd).unwrap();
-                execv(&sh, &[sh2, minus_c, command]).expect("execv failed");
+                for i in &pids {
+                    if *i > 2 {
+                        close(*i).ok();
+                    }
+                }
+                execv(&exe, &argv[..]).expect("execv failed");
                 unreachable!();
             }
             Err(_) => panic!("Fork failed"),

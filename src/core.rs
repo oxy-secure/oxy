@@ -89,6 +89,7 @@ crate struct OxyInternal {
     kr_references: RefCell<HashMap<String, u64>>,
     peer_user: RefCell<Option<String>>,
     message_claim: RefCell<bool>,
+    privs_dropped: RefCell<bool>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -511,7 +512,11 @@ impl Oxy {
                 #[cfg(unix)]
                 {
                     if self.interactive() {
-                        self.handle_metacommand(vec!["pty".to_string()]);
+                        let mut cmd = vec!["pty".to_string()];
+                        if let Some(command) = crate::arg::matches().value_of("command") {
+                            cmd.push(command.to_string());
+                        }
+                        self.handle_metacommand(cmd);
                     } else {
                         if let Some(cmd) = crate::arg::matches().value_of("command") {
                             let stdin_bt = BufferedTransport::from(0);
@@ -738,7 +743,9 @@ impl Oxy {
     pub fn notify_main_transport(&self) {
         debug!("Core notified. Has write space: {}", self.has_write_space());
         if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
-            self.exit(0);
+            eprint!("\n\r");
+            self.log_info("Connection loss detected.");
+            crate::exit::exit(0);
         }
         loop {
             let message = self.internal.underlying_transport.borrow().as_ref().unwrap().recv_tolerant();

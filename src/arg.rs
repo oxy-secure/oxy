@@ -24,7 +24,7 @@ crate fn create_app() -> App<'static, 'static> {
         .takes_value(true)
         .help("Use [identity] as authentication information for connecting to the remote server.")
         .env("OXY_IDENTITY");
-    let command = Arg::with_name("command").index(2).default_value("bash");
+    let command = Arg::with_name("command").index(2);
     let l_portfwd = Arg::with_name("local port forward")
         .multiple(true)
         .short("L")

@@ -42,7 +42,7 @@ crate fn safety_check_hard() {
         return;
     }
     if !(path.starts_with(::std::env::home_dir().unwrap()) || path.starts_with("/usr")) {
-        error!("Re-execution can lead to privilege escalation if another user can write to the executable path. Oxy detected that it is running from an uncommon location which makes it more likely this might apply. If you are certain no other user can hijack the path {:?}, run again with --unsafe-rexec", path);
+        error!("Re-execution can lead to privilege escalation if another user can write to the executable path. Oxy detected that it is running from an uncommon location which makes it more likely this might apply. If you are certain no other user can hijack the path {:?}, run again with --unsafe-reexec", path);
         ::std::process::exit(1);
     }
 }
@@ -51,7 +51,7 @@ crate fn reexec(args: &[&str]) {
     // SECURITYWATCH: We shouldn't reexec if another non-root user has write
     // permission on our binary or any parent folder. This is an out-and-out vuln
     // if somebody puts oxy in /tmp or something. It should be fine as long as
-    // we're in /home/user/.bin/oxy or /usr/bin/local/oxy or whatever, but...
+    // we're in /home/user/.cargo/bin/oxy or /usr/local/bin/oxy or whatever, but...
     // additional controls need to be added.
     safety_check_hard();
     #[cfg(unix)]
