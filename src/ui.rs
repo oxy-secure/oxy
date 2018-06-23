@@ -89,10 +89,7 @@ impl Ui {
             let seconds = self.progress_start_time.borrow().as_ref().map(|x| x.elapsed().as_secs()).unwrap_or(0);
             let throughput = crate::util::format_throughput(bytes, seconds);
             let bytes = crate::util::format_bytes(bytes);
-            let line1 = format!(
-                "Transferred: {}.{}%, {} bytes, {} seconds, throughput: {}",
-                percentage, decimal, bytes, seconds, throughput
-            );
+            let line1 = format!("{}.{}%, {}, {}s, throughput: {}", percentage, decimal, bytes, seconds, throughput);
             let barwidth: u64 = (width * percentage) / 100;
             let mut x = "=".repeat(barwidth as usize);
             if x.len() > 0 && percentage < 100 {

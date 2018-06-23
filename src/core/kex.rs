@@ -74,7 +74,7 @@ impl Oxy {
 
     fn drop_privs(&self) {
         for (k, _) in ::std::env::vars() {
-            if ["LANG", "SHELL", "HOME", "TERM"].contains(&k.as_str()) {
+            if ["LANG", "SHELL", "HOME", "TERM", "USER", "RUST_BACKTRACE", "RUST_LOG"].contains(&k.as_str()) {
                 continue;
             }
             ::std::env::remove_var(&k);
@@ -92,6 +92,7 @@ impl Oxy {
                 let pwent = pwent.unwrap();
                 ::std::env::set_var("HOME", &pwent.home);
                 ::std::env::set_var("SHELL", &pwent.shell);
+                ::std::env::set_var("USER", &pwent.name);
                 let gid = ::nix::unistd::Gid::from_raw(pwent.gid);
                 let cstr_setuser = CString::new(setuser).unwrap();
                 let grouplist = ::nix::unistd::getgrouplist(&cstr_setuser, gid);
@@ -100,10 +101,22 @@ impl Oxy {
                     ::std::process::exit(1);
                 }
                 let grouplist = grouplist.unwrap();
-                ::nix::unistd::setgroups(&grouplist[..]).unwrap();
+                let result = ::nix::unistd::setgroups(&grouplist[..]);
+                if result.is_err() {
+                    error!("Failed to set supplementary group list");
+                    ::std::process::exit(1);
+                }
 
-                ::nix::unistd::setgid(gid).unwrap();
-                ::nix::unistd::setuid(::nix::unistd::Uid::from_raw(pwent.uid)).unwrap();
+                let result = ::nix::unistd::setgid(gid);
+                if result.is_err() {
+                    error!("Failed to setgid");
+                    ::std::process::exit(1);
+                }
+                let result = ::nix::unistd::setuid(::nix::unistd::Uid::from_raw(pwent.uid));
+                if result.is_err() {
+                    error!("Failed to setuid");
+                    ::std::process::exit(1);
+                }
                 let result = ::std::env::set_current_dir(pwent.home);
                 if result.is_err() {
                     let result = ::std::env::set_current_dir("/");
@@ -113,6 +126,10 @@ impl Oxy {
                     }
                 }
                 *self.internal.privs_dropped.borrow_mut() = true;
+            } else {
+                if let Some(home) = ::std::env::home_dir() {
+                    ::std::env::set_current_dir(home).ok();
+                }
             }
         }
 

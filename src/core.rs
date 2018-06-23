@@ -94,13 +94,15 @@ crate struct OxyInternal {
 impl Oxy {
     fn alice_only(&self) {
         if !(self.perspective() == Alice) {
-            panic!("The peer sent a message that is only acceptable for a server to send to a client, but I am not a client");
+            error!("The peer sent a message that is only acceptable for a server to send to a client, but I am not a client");
+            ::std::process::exit(1);
         }
     }
 
     fn bob_only(&self) {
         if !(self.perspective() == Bob) {
-            panic!("The peer sent a message that is only acceptable for a client to send to a server, but I am not a server");
+            error!("The peer sent a message that is only acceptable for a client to send to a server, but I am not a server");
+            ::std::process::exit(1);
         }
     }
 
@@ -504,6 +506,12 @@ impl Oxy {
                 #[cfg(unix)]
                 {
                     if self.interactive() {
+                        if let Ok(term) = ::std::env::var("TERM") {
+                            self.send(EnvironmentAdvertisement {
+                                key:   "TERM".to_string(),
+                                value: term,
+                            });
+                        }
                         let mut cmd = vec!["pty".to_string()];
                         if let Some(command) = crate::arg::matches().value_of("command") {
                             cmd.push(command.to_string());

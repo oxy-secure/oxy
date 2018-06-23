@@ -83,6 +83,13 @@ impl Oxy {
                 self.bob_only();
                 *self.internal.peer_user.borrow_mut() = Some(username);
             }
+            EnvironmentAdvertisement { key, value } => {
+                self.bob_only();
+                if key.as_str() != "TERM" {
+                    Err("Unsupported")?;
+                }
+                ::std::env::set_var(key, value);
+            }
             BasicCommand { command } => {
                 self.bob_only();
                 #[cfg(unix)]
