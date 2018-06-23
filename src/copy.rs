@@ -98,6 +98,7 @@ impl CopyManager {
 
         let percentage = progress / 10;
         let decimal = progress % 10;
+        let total_bytes = crate::util::format_bytes(total_bytes);
         let line1 = format!(
             "Transferring: {:?} Transferred: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}",
             filename, percentage, decimal, total_bytes, total_seconds, throughput
