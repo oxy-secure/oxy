@@ -34,3 +34,6 @@ parking_lot = { version = "0.6", features = ["nightly"] }
 
 [target.'cfg(unix)'.dependencies]
 termion = "1.5.1"
+
+[profile.release]
+lto = true

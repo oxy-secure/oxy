@@ -123,6 +123,8 @@ impl Oxy {
             .unwrap()
             .set_notify(Rc::new(move || proxy.notify_naked()));
         let y = x.clone();
+        set_timeout(Rc::new(move || y.notify_keepalive()), Duration::from_secs(60));
+        let y = x.clone();
         transportation::set_timeout(Rc::new(move || y.launch()), Duration::from_secs(0));
         x
     }
@@ -220,6 +222,10 @@ impl Oxy {
         let message_number = self.tick_outgoing();
         debug!("Sending message {}", message_number);
         trace!("Sending message {}: {:?}", message_number, message);
+        if self.internal.underlying_transport.borrow().is_none() {
+            error!("Attempted to send protocol message before key-exchange completed.");
+            crate::exit::exit(1);
+        }
         self.internal.underlying_transport.borrow().as_ref().unwrap().send(message);
         message_number
     }
@@ -520,8 +526,6 @@ impl Oxy {
         }
         #[cfg(unix)]
         self.register_signal_handler();
-        let proxy = self.clone();
-        set_timeout(Rc::new(move || proxy.notify_keepalive()), Duration::from_secs(60));
         let mut hooks = Vec::new();
         ::std::mem::swap(&mut hooks, &mut *self.internal.post_auth_hooks.borrow_mut());
         for hook in hooks {
