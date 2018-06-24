@@ -2,7 +2,7 @@ cargo-features = ["edition"]
 
 [package]
 name = "oxy"
-version = "1.0.0-pre1"
+version = "2.0.0"
 authors = ["Jenna Magius <pyrosim@gmail.com>"]
 license = "BSD-2-Clause"
 description = "A security focused remote access tool."
@@ -20,7 +20,7 @@ byteorder = "1.2"
 log = "0.4"
 env_logger = "0.5"
 shlex = "0.1"
-transportation = { git = "https://github.com/oxy-secure/transportation.git", branch="dev", features = ["encrypt", "protocol"] }
+transportation = { version = "2", features = ["protocol", "encrypt"] }
 lazy_static = "1.0"
 num = "0.1"
 rustyline = "1.0"
