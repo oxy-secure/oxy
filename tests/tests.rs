@@ -129,3 +129,26 @@ fn copy_single_file() {
     assert_eq!(metadata("/etc/hosts").unwrap().len(), metadata("/tmp/hosts").unwrap().len());
     remove_file("/tmp/hosts").unwrap();
 }
+
+#[test]
+#[cfg(unix)]
+fn copy_single_file_fail() {
+    let _guard = SERIAL_TESTS.lock();
+    let identity = mk_identity();
+    let bad_identity = mk_identity();
+    let mut server = Command::new("./target/debug/oxy").arg("serve-one").arg(&identity).spawn().unwrap();
+    hold();
+    let mut client = Command::new("./target/debug/oxy")
+        .arg("copy")
+        .arg("localhost:/etc/hosts")
+        .arg("/tmp/")
+        .arg(&bad_identity)
+        .spawn()
+        .unwrap();
+    hold();
+    hold();
+    hold();
+    server.kill().ok();
+    client.kill().ok();
+    assert!(metadata("/tmp/hosts").is_err());
+}
