@@ -39,6 +39,10 @@ fn identity_bytes_initializer() -> Vec<u8> {
         error!("No identity provided. If the server doesn't know who you are it won't talk to you, and how will it know who you are if you don't know who you are?");
         ::std::process::exit(1);
     }
+    if ::nix::unistd::getuid().is_root() {
+        error!("Quickstart mode is not supported when running as root. Please run as a non-root user, or establish configuration files as described in the user guide.");
+        ::std::process::exit(1);
+    }
     let mut bytes = [0u8; 36].to_vec();
     transportation::RNG.fill(&mut bytes).unwrap();
     info!(
