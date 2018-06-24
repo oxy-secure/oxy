@@ -12,7 +12,7 @@ On the client side, run the following command, substituting appropriate values:
 oxy client my.server.com --identity="the identity provided in the server output"
 
 
-After you are connected, you can press F10 to get to an interactive metacommand prompt from the client. This prompt allows you to manage portforwards, VPN tunnels, file transfers, and more. If your terminal emulator is eating F10, you can also use <enter>~C (as with OpenSSH) to access this prompt.
+After you are connected, you can press F10 to get to an interactive metacommand prompt from the client. This prompt allows you to manage portforwards, VPN tunnels, file transfers, and more. If your terminal emulator is eating F10, you can also use <enter>~C (as with OpenSSH) to access this prompt. Type "help" to see more information about potential commands.
 
 Press F12 to exit out of the client.
 
