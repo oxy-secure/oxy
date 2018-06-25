@@ -107,7 +107,7 @@ impl Pty {
             }
             Ok(Child) => {
                 setsid().unwrap();
-                unsafe { ioctl(child_fd, TIOCSCTTY, 0) };
+                unsafe { ioctl(child_fd, TIOCSCTTY.into(), 0) };
                 dup2(child_fd, 0).unwrap();
                 dup2(child_fd, 1).unwrap();
                 dup2(child_fd, 2).unwrap();
