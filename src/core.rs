@@ -516,20 +516,22 @@ impl Oxy {
                                 value: term,
                             });
                         }
-                        let mut cmd = vec!["pty".to_string()];
-                        if let Some(command) = crate::arg::matches().value_of("command") {
-                            cmd.push(command.to_string());
+                        let mut cmd = vec!["pty".to_string(), "--".to_string()];
+                        if let Some(command) = crate::arg::matches().values_of("command") {
+                            cmd.extend(command.map(|x| x.to_string()));
                         }
                         self.handle_metacommand(cmd);
                     } else {
-                        if let Some(cmd) = crate::arg::matches().value_of("command") {
+                        if let Some(cmd) = crate::arg::matches().values_of("command") {
                             let stdin_bt = BufferedTransport::from(0);
                             let proxy = self.clone();
                             stdin_bt.set_notify(Rc::new(move || {
                                 proxy.notify_pipe_stdin();
                             }));
                             *self.internal.stdin_bt.borrow_mut() = Some(stdin_bt);
-                            self.handle_metacommand(vec!["pipe".to_string(), cmd.to_string()]);
+                            let mut cmd2 = vec!["pipe".to_string(), "--".to_string()];
+                            cmd2.extend(cmd.into_iter().map(|x| x.to_string()));
+                            self.handle_metacommand(cmd2);
                         }
                     }
                 }

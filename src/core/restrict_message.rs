@@ -27,6 +27,12 @@ impl Oxy {
             return Ok(message);
         }
         let forced_command = forced_command.unwrap();
+        let forced_command = ::shlex::split(&forced_command);
+        if forced_command.is_none() {
+            error!("Failed to parse forced command value.");
+            ::std::process::exit(1);
+        }
+        let forced_command = forced_command.unwrap();
         debug!("Processing restriction: forced_command: {:?}", forced_command);
 
         match message.clone() {

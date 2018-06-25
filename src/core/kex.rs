@@ -74,7 +74,7 @@ impl Oxy {
 
     fn drop_privs(&self) {
         for (k, _) in ::std::env::vars() {
-            if ["LANG", "SHELL", "HOME", "TERM", "USER", "RUST_BACKTRACE", "RUST_LOG"].contains(&k.as_str()) {
+            if ["LANG", "SHELL", "HOME", "TERM", "USER", "RUST_BACKTRACE", "RUST_LOG", "PATH"].contains(&k.as_str()) {
                 continue;
             }
             ::std::env::remove_var(&k);

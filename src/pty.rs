@@ -41,21 +41,23 @@ fn multiplexer_available(peer: Option<&str>) -> bool {
 }
 
 impl Pty {
-    crate fn forkpty(command: Option<&str>, peer: Option<&str>) -> Result<Pty, ()> {
+    crate fn forkpty(command: Option<Vec<String>>, peer: Option<&str>) -> Result<Pty, ()> {
         let result = openpty(None, None).map_err(|_| ())?;
         let parent_fd = result.master;
         let child_fd = result.slave;
         debug!("openpty results: {:?} {:?}", parent_fd, child_fd);
 
         let exe;
-        let argv;
+        let argv: Vec<CString>;
         if command.is_some() {
-            let sh = CString::new("/bin/sh").unwrap();
-            let sh2 = CString::new("/bin/sh").unwrap();
-            let minus_c = CString::new("-c").unwrap();
-            let command = CString::new(command.unwrap()).unwrap();
-            exe = sh;
-            argv = vec![sh2, minus_c, command];
+            let command = command.unwrap();
+            let exe_path = crate::util::search_path(&command[0]).ok_or(())?;
+            exe = CString::new(exe_path).map_err(|_| ())?;
+            let argv2: Vec<Result<CString, _>> = command.into_iter().map(|x| CString::new(x)).collect();
+            if argv2.iter().filter(|x| x.is_err()).next().is_some() {
+                return Err(());
+            }
+            argv = argv2.into_iter().map(|x| x.unwrap()).collect();
         } else {
             if !crate::arg::matches().is_present("no tmux") && multiplexer_available(peer) {
                 let command = ::shlex::split(&crate::conf::multiplexer(peer).unwrap()).unwrap();

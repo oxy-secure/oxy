@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::ffi::{CStr, CString};
 
 crate fn format_throughput(bytes: u64, seconds: u64) -> String {
@@ -90,4 +92,26 @@ crate fn getpwuid(uid: u32) -> Result<Pwent, ()> {
 crate fn current_user_pw() -> Result<Pwent, ()> {
     let uid = unsafe { libc::getuid() };
     getpwuid(uid)
+}
+
+crate fn search_path(bin: &str) -> Option<String> {
+    trace!("Searching path for {:?}", bin);
+    if ::std::path::Path::new(bin).is_absolute() {
+        return Some(bin.to_string());
+    }
+    let path = std::env::var("PATH");
+    if path.is_err() {
+        return None;
+    }
+    let path: String = path.unwrap();
+    for part in path.split(':') {
+        let mut dest = ::std::path::PathBuf::from(part);
+        dest.push(bin);
+        if ::std::fs::metadata(&dest).is_ok() {
+            if let Some(dest) = dest.to_str() {
+                return Some(dest.to_string());
+            }
+        }
+    }
+    None
 }

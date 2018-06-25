@@ -92,15 +92,7 @@ impl Oxy {
             }
             BasicCommand { command } => {
                 self.bob_only();
-                #[cfg(unix)]
-                let sh = "/bin/sh";
-                #[cfg(unix)]
-                let flag = "-c";
-                #[cfg(windows)]
-                let sh = "cmd.exe";
-                #[cfg(windows)]
-                let flag = "/c";
-                let result = ::std::process::Command::new(sh).arg(flag).arg(command).output();
+                let result = ::std::process::Command::new(&command[0]).args(&command[1..]).output();
                 if let Ok(result) = result {
                     self.send(BasicCommandOutput {
                         stdout: result.stdout,
@@ -162,17 +154,8 @@ impl Oxy {
             PipeCommand { command } => {
                 self.bob_only();
                 use std::process::Stdio;
-                #[cfg(unix)]
-                let sh = "/bin/sh";
-                #[cfg(unix)]
-                let flag = "-c";
-                #[cfg(windows)]
-                let sh = "cmd.exe";
-                #[cfg(windows)]
-                let flag = "/c";
-                let mut result = ::std::process::Command::new(sh)
-                    .arg(flag)
-                    .arg(command)
+                let mut result = ::std::process::Command::new(&command[0])
+                    .args(&command[1..])
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .stdin(Stdio::piped())
@@ -263,10 +246,7 @@ impl Oxy {
             #[cfg(unix)]
             PtyRequest { command } => {
                 self.bob_only();
-
-                let command2 = command.as_ref().map(|x| x.as_str());
-
-                let pty = Pty::forkpty(command2, self.peer().as_ref().map(|x| x.as_str())).map_err(|_| "forkpty failed")?;
+                let pty = Pty::forkpty(command, self.peer().as_ref().map(|x| x.as_str())).map_err(|_| "forkpty failed")?;
                 let proxy = self.clone();
                 pty.underlying.set_notify(Rc::new(move || proxy.notify_pty()));
                 *self.internal.pty.borrow_mut() = Some(pty);
