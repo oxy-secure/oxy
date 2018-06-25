@@ -111,6 +111,11 @@ impl Server {
             }
         }
 
+        if self.i.knock4_listener.borrow().is_none() && self.i.knock6_listener.borrow().is_none() {
+            error!("Failed to bind knock listener");
+            ::std::process::exit(1);
+        }
+
         let proxy = self.clone();
         transportation::set_signal_handler(Rc::new(move || proxy.harvest_children()));
     }
