@@ -18,8 +18,12 @@ crate struct Pty {
     crate child_pid:  Pid,
 }
 
-fn tmux_available() -> bool {
-    ::std::fs::metadata("/usr/bin/tmux").is_ok()
+fn tmux_path() -> Option<PathBuf> {
+    let path = PathBuf::from("/usr/bin/tmux"); // TODO: search PATH
+    if ::std::fs::metadata(&path).is_err() {
+        return None;
+    }
+    Some(path)
 }
 
 impl Pty {
@@ -39,8 +43,9 @@ impl Pty {
             exe = sh;
             argv = vec![sh2, minus_c, command];
         } else {
-            if tmux_available() && !crate::arg::matches().is_present("no tmux") {
-                exe = CString::new("/usr/bin/tmux").unwrap();
+            let tmux_path1 = tmux_path();
+            if tmux_path1.is_some() && !crate::arg::matches().is_present("no tmux") {
+                exe = CString::new(tmux_path1.unwrap().to_string_lossy().into_owned()).unwrap();
                 argv = vec![
                     exe.clone(),
                     CString::new("new-session").unwrap(),
