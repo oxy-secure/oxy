@@ -277,9 +277,5 @@ fn assert_timestamp(timestamp: &[u8]) {
     if !((time > (expected_time - 60)) && (time < (expected_time + 60))) {
         error!("Out-of-date kex signature detected. This either means clock-skew or malice.");
         ::std::process::exit(1);
-        #[allow(unreachable_code)]
-        {
-            panic!();
-        }
     }
 }
