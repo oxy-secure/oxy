@@ -145,8 +145,7 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(unsafe_reexec),
         SubCommand::with_name("serve-one")
             .about("Accept a single TCP connection, then service it in the same process.")
-            .args(&server_args)
-            .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
+            .args(&server_args),
         SubCommand::with_name("reverse-server")
             .about("Connect out to a listening client. Then, be a server.")
             .args(&server_args)
@@ -161,8 +160,8 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(server_config)
             .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
-            .arg(identity.clone())
-            .arg(verbose.clone()),
+            .arg(&identity)
+            .arg(&verbose),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
     ];
