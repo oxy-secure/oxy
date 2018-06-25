@@ -341,7 +341,12 @@ impl Oxy {
                     }
                     "upload" => {
                         let buf: PathBuf = matches.value_of("local path").unwrap().into();
-                        let buf = buf.canonicalize().unwrap();
+                        let buf = buf.canonicalize();
+                        if buf.is_err() {
+                            self.log_warn("Failed to locate local file.");
+                            return;
+                        }
+                        let buf = buf.unwrap();
                         let remote_path = matches.value_of("remote path").unwrap_or("").to_string();
 
                         let metadata = metadata(&buf);
