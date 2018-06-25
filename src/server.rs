@@ -271,6 +271,9 @@ fn fork_and_handle(stream: TcpStream) {
         if let Some(command) = crate::arg::matches().value_of("forced command") {
             args.push(format!("--forced-command={}", command));
         }
+        if crate::arg::matches().is_present("no tmux") {
+            args.push("--no-tmux".to_string());
+        }
         if crate::arg::matches().is_present("su mode") {
             args.push("--su-mode".to_string());
         }

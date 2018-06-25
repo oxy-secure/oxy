@@ -92,6 +92,9 @@ crate fn create_app() -> App<'static, 'static> {
         .short("C")
         .long("compress")
         .help("Enable ZLIB format compression of all transmitted data");
+    let no_tmux = Arg::with_name("no tmux")
+        .long("no-tmux")
+        .help("Do not use tmux as the default PTY command, even if it is available");
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -116,6 +119,7 @@ crate fn create_app() -> App<'static, 'static> {
         identity.clone(),
         port.clone(),
         verbose.clone(),
+        no_tmux.clone(),
     ];
 
     let subcommands = vec![

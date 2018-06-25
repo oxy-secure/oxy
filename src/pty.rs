@@ -18,6 +18,10 @@ crate struct Pty {
     crate child_pid:  Pid,
 }
 
+fn tmux_available() -> bool {
+    ::std::fs::metadata("/usr/bin/tmux").is_ok()
+}
+
 impl Pty {
     crate fn forkpty(command: Option<&str>) -> Result<Pty, ()> {
         let result = openpty(None, None).map_err(|_| ())?;
@@ -35,16 +39,27 @@ impl Pty {
             exe = sh;
             argv = vec![sh2, minus_c, command];
         } else {
-            let shell = crate::util::current_user_pw();
-            if shell.is_err() {
-                error!("Failed to get user shell.");
-                ::std::process::exit(1);
+            if tmux_available() && !crate::arg::matches().is_present("no tmux") {
+                exe = CString::new("/usr/bin/tmux").unwrap();
+                argv = vec![
+                    exe.clone(),
+                    CString::new("new-session").unwrap(),
+                    CString::new("-A").unwrap(),
+                    CString::new("-s").unwrap(),
+                    CString::new("oxy").unwrap(),
+                ];
+            } else {
+                let shell = crate::util::current_user_pw();
+                if shell.is_err() {
+                    error!("Failed to get user shell.");
+                    ::std::process::exit(1);
+                }
+                let shell = shell.unwrap().shell;
+                let shell_fname = PathBuf::from(&shell).file_name().unwrap().to_str().unwrap().to_string();
+                exe = CString::new(shell).unwrap();
+                argv = vec![CString::new(format!("-{}", shell_fname)).unwrap()]; // A leading - makes it a login shell. Seems like a strange convention to
+                                                                                 // me, but OK.
             }
-            let shell = shell.unwrap().shell;
-            let shell_fname = PathBuf::from(&shell).file_name().unwrap().to_str().unwrap().to_string();
-            exe = CString::new(shell).unwrap();
-            argv = vec![CString::new(format!("-{}", shell_fname)).unwrap()]; // A leading - makes it a login shell. Seems like a strange convention to
-                                                                             // me, but OK.
         }
 
         let mut pids: Vec<i32> = Vec::new();

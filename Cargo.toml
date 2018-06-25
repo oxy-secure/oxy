@@ -2,7 +2,7 @@ cargo-features = ["edition"]
 
 [package]
 name = "oxy"
-version = "2.0.2"
+version = "3.0.0-dev1"
 authors = ["Jenna Magius <pyrosim@gmail.com>"]
 license = "BSD-2-Clause"
 description = "A security focused remote access tool."
