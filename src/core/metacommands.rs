@@ -224,7 +224,10 @@ impl Oxy {
                         let offset_start = matches.value_of("offset start").map(|x| x.parse().unwrap());
                         let offset_end = matches.value_of("offset end").map(|x| x.parse().unwrap());
 
-                        let id = self.send(StatRequest { path: remote_path.clone() });
+                        let id = self.send(StatRequest {
+                            path:         remote_path.clone(),
+                            follow_links: true,
+                        });
 
                         let proxy = self.clone();
                         self.watch(Rc::new(move |message, _| match message {

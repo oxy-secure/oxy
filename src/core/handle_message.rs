@@ -608,10 +608,14 @@ impl Oxy {
                 let borrow = self.internal.tuntaps.borrow_mut();
                 borrow.get(&reference).unwrap().send(&data);
             }
-            StatRequest { path } => {
+            StatRequest { path, follow_links } => {
                 self.bob_only();
                 let path = self.qualify_path(path);
-                let info = symlink_metadata(path).map_err(|_| "Failed to stat")?;
+                let info = if follow_links {
+                    ::std::fs::metadata(path).map_err(|_| "Failed to stat")?
+                } else {
+                    symlink_metadata(path).map_err(|_| "Failed to stat")?
+                };
                 let message = StatResult {
                     reference:         message_number,
                     len:               info.len(),
