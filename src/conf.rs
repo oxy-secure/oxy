@@ -93,7 +93,35 @@ impl Conf {
             return;
         }
         let path = path.unwrap();
-        self.server = load_from_home(path);
+        let mut result = load_from_home(path);
+
+        let mut name_ticker: u64 = 0;
+
+        if let Some(table) = result.as_mut() {
+            if let Some(clients) = table.get_mut("clients") {
+                if let Some(clients) = clients.as_array_mut() {
+                    for client in clients {
+                        if let Some(client) = client.as_table_mut() {
+                            if !client.contains_key("name") {
+                                client.insert(
+                                    "name".to_string(),
+                                    ::toml::Value::String(format!("generated-client-name-{}", name_ticker)),
+                                );
+                                name_ticker += 1;
+                            } else {
+                                if let Some(name) = client.get("name").unwrap().as_str() {
+                                    if name.starts_with("generated-client-name-") {
+                                        warn!("Warning!!! You are using a statically set client name that starts with 'generated-client-name-'. This is not recommended.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.server = result;
     }
 }
 
