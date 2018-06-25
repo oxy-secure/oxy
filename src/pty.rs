@@ -4,7 +4,7 @@ use log::{debug, error, info, log, trace, warn};
 use nix::{
     pty::openpty,
     unistd::{
-        close, dup2, execv, fork, setsid,
+        close, dup2, execvp, fork, setsid,
         ForkResult::{Child, Parent},
         Pid,
     },
@@ -51,8 +51,7 @@ impl Pty {
         let argv: Vec<CString>;
         if command.is_some() {
             let command = command.unwrap();
-            let exe_path = crate::util::search_path(&command[0]).ok_or(())?;
-            exe = CString::new(exe_path).map_err(|_| ())?;
+            exe = CString::new(command[0].as_str()).map_err(|_| ())?;
             let argv2: Vec<Result<CString, _>> = command.into_iter().map(|x| CString::new(x)).collect();
             if argv2.iter().filter(|x| x.is_err()).next().is_some() {
                 return Err(());
@@ -119,7 +118,7 @@ impl Pty {
                         close(*i).ok();
                     }
                 }
-                execv(&exe, &argv[..]).expect("execv failed");
+                execvp(&exe, &argv[..]).expect("execvp failed");
                 unreachable!();
             }
             Err(_) => panic!("Fork failed"),

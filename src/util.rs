@@ -93,25 +93,3 @@ crate fn current_user_pw() -> Result<Pwent, ()> {
     let uid = unsafe { libc::getuid() };
     getpwuid(uid)
 }
-
-crate fn search_path(bin: &str) -> Option<String> {
-    trace!("Searching path for {:?}", bin);
-    if ::std::path::Path::new(bin).is_absolute() {
-        return Some(bin.to_string());
-    }
-    let path = std::env::var("PATH");
-    if path.is_err() {
-        return None;
-    }
-    let path: String = path.unwrap();
-    for part in path.split(':') {
-        let mut dest = ::std::path::PathBuf::from(part);
-        dest.push(bin);
-        if ::std::fs::metadata(&dest).is_ok() {
-            if let Some(dest) = dest.to_str() {
-                return Some(dest.to_string());
-            }
-        }
-    }
-    None
-}
