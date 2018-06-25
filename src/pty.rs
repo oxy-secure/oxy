@@ -18,12 +18,26 @@ crate struct Pty {
     crate child_pid:  Pid,
 }
 
-fn tmux_path() -> Option<PathBuf> {
-    let path = PathBuf::from("/usr/bin/tmux"); // TODO: search PATH
-    if ::std::fs::metadata(&path).is_err() {
-        return None;
+fn multiplexer_available() -> bool {
+    let command = crate::arg::matches().value_of("multiplexer");
+    if command.is_none() {
+        return false;
     }
-    Some(path)
+    let command = command.unwrap();
+    let command = ::shlex::split(command);
+    if command.is_none() {
+        warn!("Failed to parse multiplexer command");
+        return false;
+    }
+    let command = command.unwrap();
+    if command.is_empty() {
+        return false;
+    }
+    let status = ::std::fs::metadata(&command[0]);
+    if status.is_err() {
+        return false;
+    }
+    return true;
 }
 
 impl Pty {
@@ -43,16 +57,10 @@ impl Pty {
             exe = sh;
             argv = vec![sh2, minus_c, command];
         } else {
-            let tmux_path1 = tmux_path();
-            if tmux_path1.is_some() && !crate::arg::matches().is_present("no tmux") {
-                exe = CString::new(tmux_path1.unwrap().to_string_lossy().into_owned()).unwrap();
-                argv = vec![
-                    exe.clone(),
-                    CString::new("new-session").unwrap(),
-                    CString::new("-A").unwrap(),
-                    CString::new("-s").unwrap(),
-                    CString::new("oxy").unwrap(),
-                ];
+            if !crate::arg::matches().is_present("no tmux") && multiplexer_available() {
+                let command = ::shlex::split(crate::arg::matches().value_of("multiplexer").unwrap()).unwrap();
+                argv = command.into_iter().map(|x| CString::new(x).unwrap()).collect();
+                exe = argv[0].clone();
             } else {
                 let shell = crate::util::current_user_pw();
                 if shell.is_err() {

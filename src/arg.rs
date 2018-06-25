@@ -94,7 +94,13 @@ crate fn create_app() -> App<'static, 'static> {
         .help("Enable ZLIB format compression of all transmitted data");
     let no_tmux = Arg::with_name("no tmux")
         .long("no-tmux")
-        .help("Do not use tmux as the default PTY command, even if it is available");
+        .help("Do not use a terminal multiplexer as the default pty command");
+    let multiplexer = Arg::with_name("multiplexer")
+        .long("multiplexer")
+        .default_value("/usr/bin/tmux new-session -A -s oxy")
+        .help(
+            "The command to attach to a terminal multiplexer. Ignored if the first component is not an existent file, or if --no-tmux is supplied.",
+        );
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -120,6 +126,7 @@ crate fn create_app() -> App<'static, 'static> {
         port.clone(),
         verbose.clone(),
         no_tmux.clone(),
+        multiplexer.clone(),
     ];
 
     let subcommands = vec![
