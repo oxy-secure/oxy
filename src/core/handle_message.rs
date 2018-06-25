@@ -266,7 +266,7 @@ impl Oxy {
 
                 let command2 = command.as_ref().map(|x| x.as_str());
 
-                let pty = Pty::forkpty(command2).map_err(|_| "forkpty failed")?;
+                let pty = Pty::forkpty(command2, self.peer().as_ref().map(|x| x.as_str())).map_err(|_| "forkpty failed")?;
                 let proxy = self.clone();
                 pty.underlying.set_notify(Rc::new(move || proxy.notify_pty()));
                 *self.internal.pty.borrow_mut() = Some(pty);

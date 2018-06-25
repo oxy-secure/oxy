@@ -457,3 +457,43 @@ crate fn identity() -> Option<&'static str> {
         _ => None,
     }
 }
+
+crate fn forced_command(peer: Option<&str>) -> Option<String> {
+    serverside_setting(peer, "forced command", "forcedcommand")
+}
+
+crate fn multiplexer(peer: Option<&str>) -> Option<String> {
+    serverside_setting(peer, "multiplexer", "multiplexer")
+}
+
+crate fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Option<String> {
+    if crate::arg::matches().occurrences_of(arg) > 0 {
+        let setting = crate::arg::matches().value_of(arg);
+        if setting.is_some() {
+            return Some(setting.unwrap().to_string());
+        }
+    }
+    if peer.is_some() {
+        let client = client(peer.unwrap());
+        if let Some(client) = client {
+            let setting = client.get(key);
+            if let Some(setting) = setting {
+                if let Some(setting) = setting.as_str() {
+                    return Some(setting.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(server) = CONF.server.as_ref() {
+        if let Some(server) = server.as_table() {
+            if let Some(setting) = server.get(key) {
+                if let Some(setting) = setting.as_str() {
+                    return Some(setting.to_string());
+                }
+            }
+        }
+    }
+
+    crate::arg::matches().value_of(arg).map(|x| x.to_string())
+}

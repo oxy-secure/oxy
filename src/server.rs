@@ -271,7 +271,7 @@ fn fork_and_handle(stream: TcpStream) {
         if let Some(command) = crate::arg::matches().value_of("forced command") {
             args.push(format!("--forced-command={}", command));
         }
-        if crate::arg::matches().is_present("multiplexer") {
+        if crate::arg::matches().occurrences_of("multiplexer") > 0 {
             if let Some(multiplexer) = crate::arg::matches().value_of("multiplexer") {
                 args.push(format!("--multiplexer={}", multiplexer));
             }

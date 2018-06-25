@@ -18,13 +18,13 @@ crate struct Pty {
     crate child_pid:  Pid,
 }
 
-fn multiplexer_available() -> bool {
-    let command = crate::arg::matches().value_of("multiplexer");
+fn multiplexer_available(peer: Option<&str>) -> bool {
+    let command = crate::conf::multiplexer(peer);
     if command.is_none() {
         return false;
     }
     let command = command.unwrap();
-    let command = ::shlex::split(command);
+    let command = ::shlex::split(&command);
     if command.is_none() {
         warn!("Failed to parse multiplexer command");
         return false;
@@ -41,7 +41,7 @@ fn multiplexer_available() -> bool {
 }
 
 impl Pty {
-    crate fn forkpty(command: Option<&str>) -> Result<Pty, ()> {
+    crate fn forkpty(command: Option<&str>, peer: Option<&str>) -> Result<Pty, ()> {
         let result = openpty(None, None).map_err(|_| ())?;
         let parent_fd = result.master;
         let child_fd = result.slave;
@@ -57,8 +57,8 @@ impl Pty {
             exe = sh;
             argv = vec![sh2, minus_c, command];
         } else {
-            if !crate::arg::matches().is_present("no tmux") && multiplexer_available() {
-                let command = ::shlex::split(crate::arg::matches().value_of("multiplexer").unwrap()).unwrap();
+            if !crate::arg::matches().is_present("no tmux") && multiplexer_available(peer) {
+                let command = ::shlex::split(&crate::conf::multiplexer(peer).unwrap()).unwrap();
                 argv = command.into_iter().map(|x| CString::new(x).unwrap()).collect();
                 exe = argv[0].clone();
             } else {

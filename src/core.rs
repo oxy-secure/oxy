@@ -131,6 +131,10 @@ impl Oxy {
         x
     }
 
+    pub fn peer(&self) -> Option<String> {
+        self.internal.peer_name.borrow().clone()
+    }
+
     pub fn set_peer_name(&self, name: &str) {
         trace!("Setting peer name to {:?}", name);
         *self.internal.peer_name.borrow_mut() = Some(name.to_string());
