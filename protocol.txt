@@ -19,9 +19,9 @@ The kex (or "Key EXchange") consists of the client sending three size-specified 
 
 The first message consists of one byte indicating the kex version number (currently must be zero), followed by a Ed25519 public key value. This is the long-term client key.
 
-The second message consists of eight bytes containing a big-endian representation of the number of whole seconds since the unix epoch, followed by a different Ed25519 public key. This is the ephemeral client key.
+The second message consists of eight bytes containing a big-endian representation of the number of whole seconds since the unix epoch, followed by a different X25519 public key. This is the ephemeral client key.
 
-The third message contains an ECDSA signature of the value of the second message, signed using the long-term client key from the first message.
+The third message contains an Ed25519 signature of the value of the second message, signed using the long-term client key from the first message.
 
 The server performs authentication intially by directly comparing the shared long-term client key value to its database of known client keys. No deserialization or cryptographic processing is done at this time. Only when the server is pre-existingly in possession of a byte-for-byte identical public key value does the server proceed with signature verification. Upon successful verification of the signature contained in the third message (and verification that the eight-byte timestamp is current), the server proceeds to send three symmetrical messages: a long term server public key, an ephemeral server public key, and a signature message authenticating the ephemeral key.
 
