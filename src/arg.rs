@@ -53,10 +53,6 @@ crate fn create_app() -> App<'static, 'static> {
         .help("The port used for TCP")
         .takes_value(true)
         .default_value("2600");
-    let user = Arg::with_name("user")
-        .long("user")
-        .takes_value(true)
-        .help("The remote username to log in with. Only applicable for servers using --su-mode");
     let via = Arg::with_name("via")
         .long("via")
         .takes_value(true)
@@ -101,6 +97,8 @@ crate fn create_app() -> App<'static, 'static> {
         .help(
             "The command to attach to a terminal multiplexer. Ignored if the first component is not an existent file, or if --no-tmux is supplied.",
         );
+    let tun = Arg::with_name("tun").long("tun").help("Connect two tunnel devices together. This will work if either: both sides of the connection have root privileges (not recommended), or if the devices have been previously created with appropriate permissions (e.g. 'ip tuntap add tun0 mode tun user [youruser]')").takes_value(true).value_name("local[:remote]");
+    let tap = Arg::with_name("tap").long("tap").help("Connect two tap devices together. This will work if either: both sides of the connection have root privileges (not recommended), or if the devices have been previously created with appropriate permissions (e.g. 'ip tuntap add tap0 mode tap user [youruser]')").takes_value(true).value_name("local[:remote]");
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -112,10 +110,11 @@ crate fn create_app() -> App<'static, 'static> {
         trusted_xforward,
         server_config.clone(),
         client_config.clone(),
-        user,
         via,
         compression.clone(),
         verbose.clone(),
+        tun,
+        tap,
         command,
     ];
     let server_args = vec![

@@ -608,6 +608,27 @@ impl Oxy {
         if arg::matches().is_present("X Forwarding") {
             self.initiate_x_forwarding();
         }
+        self.init_tuntap();
+    }
+
+    fn init_tuntap(&self) {
+        for mode in &["tun", "tap"] {
+            if let Some(tuns) = arg::matches().values_of(mode) {
+                for tun in tuns {
+                    let local;
+                    let remote;
+                    if tun.contains(':') {
+                        let mut iter = tun.split(':');
+                        local = iter.next().unwrap().to_string();
+                        remote = iter.next().unwrap().to_string();
+                    } else {
+                        local = tun.to_string();
+                        remote = tun.to_string();
+                    }
+                    self.handle_metacommand(vec![mode.to_string(), local, remote]);
+                }
+            }
+        }
     }
 
     fn initiate_x_forwarding(&self) {
