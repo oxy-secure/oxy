@@ -64,9 +64,7 @@ impl Server {
         {
             // Knock6
             let bind_addr = format!("[::]:{}", knock_port).parse().unwrap();
-            let knock6_listener = UdpSocket::bind(&bind_addr);
-            if knock6_listener.is_ok() {
-                let knock6_listener = knock6_listener.unwrap();
+            if let Ok(knock6_listener) = UdpSocket::bind(&bind_addr) {
                 let proxy = self.clone();
                 let knock_token = transportation::insert_listener(Rc::new(move || proxy.notify_knock6()));
                 let mut registered = false;
@@ -89,9 +87,7 @@ impl Server {
         {
             // Knock4
             let bind_addr = format!("0.0.0.0:{}", knock_port).parse().unwrap();
-            let knock4_listener = UdpSocket::bind(&bind_addr);
-            if knock4_listener.is_ok() {
-                let knock4_listener = knock4_listener.unwrap();
+            if let Ok(knock4_listener) = UdpSocket::bind(&bind_addr) {
                 let proxy = self.clone();
                 let knock_token = transportation::insert_listener(Rc::new(move || proxy.notify_knock4()));
                 let mut registered = false;
