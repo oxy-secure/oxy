@@ -27,6 +27,7 @@ use std::{
 };
 use transportation::{
     self,
+    ring::rand::SecureRandom,
     mio::net::TcpListener,
     set_timeout, BufferedTransport, EncryptedTransport,
     EncryptionPerspective::{Alice, Bob},
@@ -617,9 +618,13 @@ impl Oxy {
         } else {
             "untrusted"
         };
+        let mut nonce = [0u8; 8];
+        transportation::RNG.fill(&mut nonce).unwrap();
+        let cookiefile = format!("/tmp/oxy-{}.xauth", ::data_encoding::HEXUPPER.encode(&nonce));
+        debug!("xauth cookie filename: {}", &cookiefile);
         let xauth = ::std::process::Command::new("xauth")
             .arg("-f")
-            .arg("/tmp/xcookie")
+            .arg(&cookiefile)
             .arg("generate")
             .arg(":0")
             .arg(".")
@@ -631,13 +636,13 @@ impl Oxy {
             warn!("Failed to generate an xauthority cookie");
             return;
         }
-        let cookie = ::std::process::Command::new("xauth").arg("-f").arg("/tmp/xcookie").arg("list").output();
+        let cookie = ::std::process::Command::new("xauth").arg("-f").arg(&cookiefile).arg("list").output();
         if cookie.is_err() {
             warn!("Failed to retrieve the xauthority cookie");
-            ::std::fs::remove_file("/tmp/xcookie").ok();
+            ::std::fs::remove_file(&cookiefile).ok();
             return;
         }
-        ::std::fs::remove_file("/tmp/xcookie").unwrap();
+        ::std::fs::remove_file(&cookiefile).unwrap();
         let cookie = cookie.unwrap();
         let cookie = String::from_utf8(cookie.stdout.clone());
         if cookie.is_err() {
