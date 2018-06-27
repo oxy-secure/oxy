@@ -1,3 +1,6 @@
+(This is being radically changed and will be outdated soon.)
+
+
 There are three main phases to the lifecycle of an Oxy connection: the knock, the kex, and the main body.
 
 
