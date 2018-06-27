@@ -1,0 +1,49 @@
+.TH "oxy-copy" 1 "Tue Jun 26 11:24:24 UTC 2018" "version 2.0.2"
+.SH NAME
+oxy-copy
+.SH SYNOPSIS
+oxy copy [-ChiVv] <location>...
+.SH DESCRIPTION
+Copy files from any number of sources to one destination.
+.PP
+.B --client-config <client config>
+.RS
+Path to client.conf [default: ~/.config/oxy/client.conf]
+.RE
+
+.B -C, --compress
+.RS
+Enable ZLIB format compression of all transmitted data
+.RE
+
+.B -h, --help
+.RS
+Prints help information
+.RE
+
+.B -i, --identity <identity>
+.RS
+Use [identity] as authentication information for connecting to the remote
+.RE
+.RS
+server. [env: OXY_IDENTITY=]
+.RE
+
+.B --server-config <server config>
+.RS
+Path to server.conf [default: ~/.config/oxy/server.conf]
+.RE
+
+.B -V, --version
+.RS
+Prints version information
+.RE
+
+.B -v, --verbose
+.RS
+Increase debugging output
+.RE
+
+
+.SH AUTHOR
+Jenna Magius <pyrosim@gmail.com>
