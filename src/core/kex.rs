@@ -28,9 +28,9 @@ impl Oxy {
             ::std::process::exit(1);
         }
         let peer_public_key = peer_public_key.unwrap();
-        let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk2_25519_AESGCM_SHA512".parse().unwrap())
+        let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk1_25519_AESGCM_SHA512".parse().unwrap())
             .local_private_key(&privkey[..])
-            .psk(2, &psk[..])
+            .psk(1, &psk[..])
             .remote_public_key(&peer_public_key[..])
             .build_initiator()
             .unwrap();
@@ -64,16 +64,12 @@ impl Oxy {
             NakedState::WaitingForInitiator => {
                 if let Some(message) = self.recv_naked() {
                     let privkey = crate::keys::get_private_key(None);
-                    let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk2_25519_AESGCM_SHA512".parse().unwrap())
+                    let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk1_25519_AESGCM_SHA512".parse().unwrap())
                         .local_private_key(&privkey[..])
                         .build_responder()
                         .unwrap();
                     let mut message_buffer = [0u8; 65535];
-                    let result = session.read_message(&message, &mut message_buffer[..]);
-                    if result.is_err() {
-                        error!("Invalid initiation message: {:?}", result);
-                        ::std::process::exit(1);
-                    }
+                    session.read_message(&message, &mut message_buffer).ok();
 
                     let peer_public_key = session.get_remote_static().map(|x| x.to_vec());
                     if peer_public_key.is_none() {
@@ -87,6 +83,7 @@ impl Oxy {
                             "Rejecting connection for unknown public key: {:?}",
                             ::data_encoding::BASE32_NOPAD.encode(&peer_public_key)
                         );
+                        ::std::process::exit(1);
                     }
 
                     let psk = crate::conf::peer_static_key(peer.as_ref().unwrap().as_str());
@@ -94,10 +91,16 @@ impl Oxy {
                         error!("Failed to locate PSK for peer {:?}", peer);
                         ::std::process::exit(1);
                     }
+                    let psk = psk.unwrap();
 
-                    let result = session.set_psk(2, &psk.unwrap());
+                    let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk1_25519_AESGCM_SHA512".parse().unwrap())
+                        .local_private_key(&privkey)
+                        .psk(1, &psk)
+                        .build_responder()
+                        .unwrap();
+                    let result = session.read_message(&message, &mut message_buffer);
                     if result.is_err() {
-                        error!("Failed to set PSK {:?}", result);
+                        error!("Handshake failed: {:?}", result);
                         ::std::process::exit(1);
                     }
 
