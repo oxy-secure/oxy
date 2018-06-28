@@ -1,16 +1,17 @@
+mod drop_privs;
 mod handle_message;
 mod kex;
 mod metacommands;
 mod restrict_message;
 
-use self::kex::{KexData, NakedState};
+use self::kex::NakedState;
 use byteorder::{self, ByteOrder};
 #[cfg(unix)]
 use crate::pty::Pty;
 #[cfg(unix)]
 use crate::tuntap::TunTap;
 use crate::{
-    arg, keys,
+    arg,
     message::OxyMessage::{self, *},
     ui::Ui,
 };
@@ -27,11 +28,11 @@ use std::{
 };
 use transportation::{
     self,
-    ring::rand::SecureRandom,
     mio::net::TcpListener,
-    set_timeout, BufferedTransport, EncryptedTransport,
+    ring::rand::SecureRandom,
+    set_timeout, BufferedTransport,
     EncryptionPerspective::{Alice, Bob},
-    MessageTransport, Notifiable, Notifies, ProtocolTransport,
+    Notifiable, Notifies,
 };
 
 #[derive(Clone)]
@@ -55,8 +56,8 @@ crate struct PipeChild {
 
 #[derive(Default)]
 crate struct OxyInternal {
-    naked_transport: RefCell<Option<MessageTransport>>,
-    underlying_transport: RefCell<Option<ProtocolTransport>>,
+    naked_transport: RefCell<Option<BufferedTransport>>,
+    noise_session: RefCell<Option<::snow::Session>>,
     peer_name: RefCell<Option<String>>,
     piped_children: RefCell<HashMap<u64, PipeChild>>,
     ui: RefCell<Option<Ui>>,
@@ -68,7 +69,6 @@ crate struct OxyInternal {
     remote_streams: RefCell<HashMap<u64, PortStream>>,
     remote_bind_destinations: RefCell<HashMap<u64, String>>,
     naked_state: RefCell<NakedState>,
-    kex_data: RefCell<KexData>,
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
     last_message_seen: RefCell<Option<Instant>>,
     launched: RefCell<bool>,
@@ -86,6 +86,9 @@ crate struct OxyInternal {
     peer_user: RefCell<Option<String>>,
     message_claim: RefCell<bool>,
     privs_dropped: RefCell<bool>,
+    outbound_compression: RefCell<bool>,
+    inbound_compression: RefCell<bool>,
+    inbound_cleartext_buffer: RefCell<Vec<u8>>,
     #[cfg(unix)]
     pty: RefCell<Option<Pty>>,
     #[cfg(unix)]
@@ -113,9 +116,8 @@ impl Oxy {
 
     pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
         let bt: BufferedTransport = transport.into();
-        let mt = <MessageTransport as From<BufferedTransport>>::from(bt);
         let internal = OxyInternal::default();
-        *internal.naked_transport.borrow_mut() = Some(mt);
+        *internal.naked_transport.borrow_mut() = Some(bt);
         *internal.last_message_seen.borrow_mut() = Some(Instant::now());
         let x = Oxy { internal: Rc::new(internal) };
         let proxy = x.clone();
@@ -185,7 +187,7 @@ impl Oxy {
     }
 
     fn is_encrypted(&self) -> bool {
-        self.internal.underlying_transport.borrow().is_some()
+        self.internal.noise_session.borrow().is_some() && self.internal.noise_session.borrow().as_ref().unwrap().is_handshake_finished()
     }
 
     fn launch(&self) {
@@ -216,25 +218,97 @@ impl Oxy {
             self.advertise_client_key();
         }
         if self.perspective() == Bob {
-            *self.internal.naked_state.borrow_mut() = NakedState::WaitingForClientKey;
+            *self.internal.naked_state.borrow_mut() = NakedState::WaitingForInitiator;
         }
     }
 
-    pub fn run<T: Into<BufferedTransport>>(transport: T) -> ! {
+    crate fn run<T: Into<BufferedTransport>>(transport: T) -> ! {
         Oxy::create(transport);
         transportation::run();
     }
 
-    pub fn send(&self, message: OxyMessage) -> u64 {
+    crate fn send(&self, message: OxyMessage) -> u64 {
         let message_number = self.tick_outgoing();
         debug!("Sending message {}", message_number);
         trace!("Sending message {}: {:?}", message_number, message);
-        if self.internal.underlying_transport.borrow().is_none() {
+        if !self.is_encrypted() {
             error!("Attempted to send protocol message before key-exchange completed.");
             crate::exit::exit(1);
         }
-        self.internal.underlying_transport.borrow().as_ref().unwrap().send(message);
+        let serialized: Vec<u8> = serialize(message);
+        let framed: Vec<Vec<u8>> = frame(serialized);
+        for frame in framed {
+            let encrypted_frame: Vec<u8> = self.encrypt(frame);
+            self.internal.naked_transport.borrow().as_ref().unwrap().put(&encrypted_frame);
+        }
         message_number
+    }
+
+    crate fn encrypt(&self, message: impl AsRef<[u8]>) -> Vec<u8> {
+        let mut buf = [0u8; 65535].to_vec();
+        let result = self
+            .internal
+            .noise_session
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .write_message(message.as_ref(), &mut buf);
+        if result.is_err() {
+            error!("Failed to encrypt outbound message {:?}", result);
+            ::std::process::exit(1);
+        }
+        buf.resize(result.unwrap(), 0);
+        buf
+    }
+
+    crate fn decrypt(&self, message: impl AsRef<[u8]>) -> Vec<u8> {
+        let mut buf = [0u8; 65535].to_vec();
+        let result = self
+            .internal
+            .noise_session
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .read_message(message.as_ref(), &mut buf);
+        if result.is_err() {
+            error!("Failed to decrypt incoming frame: {:?}", result);
+            ::std::process::exit(1);
+        }
+        buf.resize(result.unwrap(), 0);
+        buf
+    }
+
+    crate fn recv(&self) -> Option<(OxyMessage, u64)> {
+        loop {
+            let frame = self.internal.naked_transport.borrow().as_ref().unwrap().take_chunk(272);
+            if frame.is_none() {
+                return None;
+            }
+            let frame = frame.unwrap();
+            let plaintext = self.decrypt(frame);
+            if plaintext.len() != 256 {
+                error!("Incorrect frame length.");
+                ::std::process::exit(1);
+            }
+            let relevant_bytes = plaintext[0] as usize;
+            self.internal
+                .inbound_cleartext_buffer
+                .borrow_mut()
+                .extend(&plaintext[1..(1 + relevant_bytes)]);
+            if relevant_bytes != 255 {
+                let message_number = self.tick_incoming();
+                let message: Result<OxyMessage, _> = ::serde_cbor::from_slice(&*self.internal.inbound_cleartext_buffer.borrow_mut());
+                self.internal.inbound_cleartext_buffer.borrow_mut().clear();
+                if message.is_err() {
+                    self.send(Reject {
+                        reference: message_number,
+                        note:      "Invalid message".to_string(),
+                    });
+                    continue;
+                }
+                return Some((message.unwrap(), message_number));
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -311,7 +385,7 @@ impl Oxy {
     }
 
     pub fn has_write_space(&self) -> bool {
-        self.internal.underlying_transport.borrow().as_ref().unwrap().has_write_space()
+        self.internal.naked_transport.borrow().as_ref().unwrap().has_write_space()
     }
 
     fn service_transfers(&self) {
@@ -432,23 +506,14 @@ impl Oxy {
     }
 
     fn upgrade_to_encrypted(&self) {
-        if self.is_encrypted() {
-            return;
-        }
         debug!("Activating encryption.");
-        let transport = self.internal.naked_transport.borrow_mut().take().unwrap();
-        let bt: BufferedTransport = match transport {
-            MessageTransport::BufferedTransport(bt) => bt,
-            _ => panic!(),
-        };
-        let mut key = self.internal.kex_data.borrow_mut().keymaterial.as_ref().unwrap().to_vec();
-        let peer = self.internal.peer_name.borrow().clone();
-        key.extend(keys::static_key(peer.as_ref().map(|x| &**x)));
-        let et = EncryptedTransport::create(bt, self.perspective(), &key);
-        let pt = ProtocolTransport::create(et);
         let proxy = self.clone();
-        pt.set_notify(Rc::new(move || proxy.notify_main_transport()));
-        *self.internal.underlying_transport.borrow_mut() = Some(pt);
+        self.internal
+            .naked_transport
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .set_notify(Rc::new(move || proxy.notify_main_transport()));
         self.notify_main_transport();
         self.do_post_auth();
     }
@@ -768,26 +833,17 @@ impl Oxy {
 
     pub fn notify_main_transport(&self) {
         debug!("Core notified. Has write space: {}", self.has_write_space());
-        if self.internal.underlying_transport.borrow().as_ref().unwrap().is_closed() {
+        if self.internal.naked_transport.borrow().as_ref().unwrap().is_closed() {
             eprint!("\n\r");
             self.log_info("Connection loss detected.");
             crate::exit::exit(0);
         }
         loop {
-            let message = self.internal.underlying_transport.borrow().as_ref().unwrap().recv_tolerant();
+            let message = self.recv();
             if message.is_none() {
                 break;
             }
-            let message = message.unwrap();
-            let message_number = self.tick_incoming();
-            if message.is_none() {
-                self.send(Reject {
-                    reference: message_number,
-                    note:      "Invalid message".to_string(),
-                });
-                continue;
-            }
-            let message = message.unwrap();
+            let (message, message_number) = message.unwrap();
             let result = self.handle_message(message, message_number);
             if result.is_err() {
                 self.send(Reject {
@@ -863,4 +919,30 @@ impl Notifiable for SocksConnectionNotificationProxy {
 enum SocksState {
     Initial,
     Authed,
+}
+
+fn serialize(message: OxyMessage) -> Vec<u8> {
+    let result = ::serde_cbor::ser::to_vec_packed(&message);
+    if result.is_err() {
+        error!("Failed to serialize outbound message: {:?}, {:?}", result, message);
+        ::std::process::exit(1);
+    }
+    result.unwrap()
+}
+
+fn frame(data: Vec<u8>) -> Vec<Vec<u8>> {
+    let mut result = Vec::new();
+    if data.is_empty() {
+        return result;
+    }
+    for i in data.chunks(255) {
+        let mut frame = vec![i.len() as u8];
+        frame.extend(i);
+        frame.resize(256, 0);
+        result.push(frame);
+    }
+    if result.iter().last().unwrap()[0] == 255 {
+        result.push([0u8; 256][..].to_vec());
+    }
+    result
 }

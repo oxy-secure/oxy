@@ -36,10 +36,6 @@ fn load_conf() -> Conf {
     result
 }
 
-crate fn has_server_conf() -> bool {
-    CONF.server.is_some()
-}
-
 fn load_from_home(path: &str) -> Option<toml::Value> {
     let mut path = path.to_string();
     if path.starts_with("~") {
@@ -122,13 +118,6 @@ impl Conf {
         }
 
         self.server = result;
-    }
-}
-
-crate fn server_identity() -> Option<&'static str> {
-    match &CONF.server {
-        Some(Table(table)) => table.get("identity").map(|x| x.as_str().expect("Identity is not a string?")),
-        _ => None,
     }
 }
 
@@ -258,38 +247,6 @@ crate fn public_key(peer: Option<&str>) -> Option<Vec<u8>> {
 
 crate fn get_setuser(peer: &str) -> Option<String> {
     Some(client(peer)?.get("setuser")?.as_str()?.to_string())
-}
-
-crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
-    debug!("Trying to load a client identity for {}", peer);
-    match &CONF.client {
-        Some(Table(table)) => {
-            let default_identity = table.get("identity").map(|x| x.as_str().expect("Identity is not a string?"));
-            debug!("Default identity is {:?}", default_identity);
-            let servers = table.get("servers");
-            debug!("Servers table is {:?}", servers);
-            match servers {
-                Some(Array(servers)) => {
-                    for server in servers {
-                        debug!("Examining server {:?}", server.as_table().unwrap().get("name"));
-                        if server.as_table().unwrap().get("name").unwrap().as_str().unwrap() == peer {
-                            debug!("Found matching server entry in client config");
-                            let identity = server.as_table().unwrap().get("identity").map(|x| x.as_str().unwrap());
-                            return if identity.is_none() { default_identity } else { identity };
-                        }
-                    }
-                    default_identity
-                }
-                _ => default_identity,
-            }
-        }
-        _ => None,
-    }
-}
-
-crate fn client_identity() -> Option<&'static str> {
-    debug!("Trying to load a client identity");
-    client_identity_for_peer(&crate::arg::destination())
 }
 
 fn host_part<'a>(dest: &'a str) -> &'a str {
@@ -475,15 +432,6 @@ crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
         return Vec::new();
     }
     return result.unwrap().collect();
-}
-
-crate fn identity() -> Option<&'static str> {
-    match crate::arg::mode().as_str() {
-        "server" => server_identity(),
-        "serve-one" => server_identity(),
-        "client" => client_identity(),
-        _ => None,
-    }
 }
 
 crate fn forced_command(peer: Option<&str>) -> Option<String> {

@@ -1,40 +1,12 @@
-use byteorder::{self, ByteOrder};
-use crate::{core::Oxy, keys};
-use data_encoding::BASE32_NOPAD;
+use crate::core::Oxy;
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
-use std::{
-    ffi::CString,
-    time::{SystemTime, UNIX_EPOCH},
-};
-use transportation::{
-    ring::{
-        agreement::{self, agree_ephemeral, EphemeralPrivateKey, X25519},
-        signature,
-    },
-    untrusted::Input,
-    RNG,
-};
-
-#[derive(Default)]
-pub(super) struct KexData {
-    crate connection_client_key: Option<Vec<u8>>,
-    crate client_key_evidence:   Option<Vec<u8>>,
-    crate my_ephemeral_key:      Option<EphemeralPrivateKey>,
-    crate keymaterial:           Option<Vec<u8>>,
-    crate server_key:            Option<Vec<u8>>,
-    crate server_ephemeral:      Option<Vec<u8>>,
-}
 
 #[derive(Clone, PartialEq, Debug)]
 pub(super) enum NakedState {
     Reject,
-    WaitingForClientKey,
-    WaitingForClientEphemeral,
-    WaitingForClientSignature,
-    WaitingForServerKey,
-    WaitingForServerEphemeral,
-    WaitingForServerSignature,
+    WaitingForInitiator,
+    WaitingForResponder,
 }
 
 impl Default for NakedState {
@@ -46,97 +18,36 @@ impl Default for NakedState {
 impl Oxy {
     pub(super) fn advertise_client_key(&self) {
         let peer_name = self.internal.peer_name.borrow().clone();
-        trace!("x Peer name: {:?}", peer_name);
-        let key = keys::asymmetric_key(peer_name.as_ref().map(|x| &**x));
-        let mut pubkey: Vec<u8> = key.public_key_bytes().to_vec();
-        pubkey.insert(0, 0);
-        self.send_naked(&pubkey);
-        let evidence = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let mut evidence_buf = [0u8; 8].to_vec();
-        byteorder::BE::write_u64(&mut evidence_buf, evidence);
-        let ephemeral_key = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
-        evidence_buf.resize(8 + ephemeral_key.public_key_len(), 0);
-        ephemeral_key.compute_public_key(&mut evidence_buf[8..]).unwrap();
-        self.send_naked(&evidence_buf);
-        let msg = key.sign(&evidence_buf);
-        self.send_naked(msg.as_ref());
-        self.internal.kex_data.borrow_mut().my_ephemeral_key = Some(ephemeral_key);
-        *self.internal.naked_state.borrow_mut() = NakedState::WaitingForServerKey;
+        let peer_name2 = peer_name.as_ref().map(|x| x.as_str());
+        trace!("Peer name: {:?}", peer_name);
+        let privkey = crate::keys::get_private_key(peer_name2);
+        let psk = crate::keys::get_static_key(peer_name2);
+        let peer_public_key = crate::conf::public_key(peer_name2);
+        if peer_public_key.is_none() {
+            error!("No peer public key found.");
+            ::std::process::exit(1);
+        }
+        let peer_public_key = peer_public_key.unwrap();
+        let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk2_25519_AESGCM_SHA512".parse().unwrap())
+            .local_private_key(&privkey[..])
+            .psk(2, &psk[..])
+            .remote_public_key(&peer_public_key[..])
+            .build_initiator()
+            .unwrap();
+        let mut message = Vec::with_capacity(65535);
+        message.resize(65535, 0);
+        let size = session.write_message(b"", &mut message).unwrap();
+        self.send_naked(&message[..size]);
+        *self.internal.noise_session.borrow_mut() = Some(session);
+        *self.internal.naked_state.borrow_mut() = NakedState::WaitingForResponder;
     }
 
     fn send_naked(&self, message: &[u8]) {
-        self.internal.naked_transport.borrow_mut().as_mut().unwrap().send(message);
+        self.internal.naked_transport.borrow_mut().as_mut().unwrap().send_message(message);
     }
 
     fn recv_naked(&self) -> Option<Vec<u8>> {
-        self.internal.naked_transport.borrow_mut().as_ref().unwrap().recv()
-    }
-
-    fn drop_privs(&self) {
-        for (k, _) in ::std::env::vars() {
-            if ["LANG", "SHELL", "HOME", "TERM", "USER", "RUST_BACKTRACE", "RUST_LOG", "PATH"].contains(&k.as_str()) {
-                continue;
-            }
-            ::std::env::remove_var(&k);
-        }
-        let peer = self.internal.peer_name.borrow().clone();
-        if let Some(peer) = peer {
-            let setuser = crate::conf::get_setuser(&peer);
-            if let Some(setuser) = setuser {
-                info!("Setting user: {}", setuser);
-                let pwent = crate::util::getpwnam(&setuser);
-                if pwent.is_err() {
-                    error!("Failed to gather user information for {}", setuser);
-                    ::std::process::exit(1);
-                }
-                let pwent = pwent.unwrap();
-                ::std::env::set_var("HOME", &pwent.home);
-                ::std::env::set_var("SHELL", &pwent.shell);
-                ::std::env::set_var("USER", &pwent.name);
-                let gid = ::nix::unistd::Gid::from_raw(pwent.gid);
-                let cstr_setuser = CString::new(setuser).unwrap();
-                let grouplist = ::nix::unistd::getgrouplist(&cstr_setuser, gid);
-                if grouplist.is_err() {
-                    error!("Failed to get supplementary group list");
-                    ::std::process::exit(1);
-                }
-                let grouplist = grouplist.unwrap();
-                let result = ::nix::unistd::setgroups(&grouplist[..]);
-                if result.is_err() {
-                    error!("Failed to set supplementary group list");
-                    ::std::process::exit(1);
-                }
-
-                let result = ::nix::unistd::setgid(gid);
-                if result.is_err() {
-                    error!("Failed to setgid");
-                    ::std::process::exit(1);
-                }
-                let result = ::nix::unistd::setuid(::nix::unistd::Uid::from_raw(pwent.uid));
-                if result.is_err() {
-                    error!("Failed to setuid");
-                    ::std::process::exit(1);
-                }
-                let result = ::std::env::set_current_dir(pwent.home);
-                if result.is_err() {
-                    let result = ::std::env::set_current_dir("/");
-                    if result.is_err() {
-                        error!("Failed to change directory");
-                        ::std::process::exit(1);
-                    }
-                }
-                *self.internal.privs_dropped.borrow_mut() = true;
-            } else {
-                if let Some(home) = ::std::env::home_dir() {
-                    ::std::env::set_current_dir(home).ok();
-                }
-            }
-        }
-
-        if ::nix::unistd::getuid().is_root() && !*self.internal.privs_dropped.borrow() {
-            error!("Running as root, but did not drop privileges. Exiting.");
-            ::std::process::exit(1);
-        }
+        self.internal.naked_transport.borrow_mut().as_ref().unwrap().recv_message()
     }
 
     pub(super) fn notify_naked(&self) {
@@ -150,132 +61,80 @@ impl Oxy {
         let state = self.internal.naked_state.borrow().clone();
         match state {
             NakedState::Reject => panic!(),
-            NakedState::WaitingForClientKey => {
-                self.bob_only();
-                if let Some(mut msg) = self.recv_naked() {
-                    let version_indicator = msg.remove(0);
-                    assert!(version_indicator == 0);
-                    let mut peer = self.internal.peer_name.borrow().clone();
-                    if peer.is_none() {
-                        peer = crate::keys::get_peer_for_public_key(&msg);
-                        *self.internal.peer_name.borrow_mut() = peer.clone();
-                    }
-                    if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
-                        panic!("Incorrect client key");
-                    }
-                    debug!("Accepted client key {:?}", BASE32_NOPAD.encode(&msg));
-                    self.internal.kex_data.borrow_mut().connection_client_key = Some(msg.to_vec());
-                    *self.internal.naked_state.borrow_mut() = NakedState::WaitingForClientEphemeral;
-                    self.notify_naked();
-                }
-            }
-            NakedState::WaitingForClientEphemeral => {
-                self.bob_only();
-                if let Some(msg) = self.recv_naked() {
-                    assert_timestamp(&msg[..8]);
-                    self.internal.kex_data.borrow_mut().client_key_evidence = Some(msg.to_vec());
-                    *self.internal.naked_state.borrow_mut() = NakedState::WaitingForClientSignature;
-                    self.notify_naked();
-                }
-            }
-            NakedState::WaitingForClientSignature => {
-                self.bob_only();
-                if let Some(msg) = self.recv_naked() {
-                    debug!("Evidence message: {:?}", msg);
-                    let kex_data = self.internal.kex_data.borrow_mut();
-                    let result = signature::verify(
-                        &signature::ED25519,
-                        Input::from(kex_data.connection_client_key.as_ref().unwrap()),
-                        Input::from(kex_data.client_key_evidence.as_ref().unwrap()),
-                        Input::from(&msg),
-                    );
+            NakedState::WaitingForInitiator => {
+                if let Some(message) = self.recv_naked() {
+                    let privkey = crate::keys::get_private_key(None);
+                    let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk2_25519_AESGCM_SHA512".parse().unwrap())
+                        .local_private_key(&privkey[..])
+                        .build_responder()
+                        .unwrap();
+                    let mut message_buffer = [0u8; 65535];
+                    let result = session.read_message(&message, &mut message_buffer[..]);
                     if result.is_err() {
-                        error!("Client kex signature verification failed.");
+                        error!("Invalid initiation message: {:?}", result);
                         ::std::process::exit(1);
                     }
-                    self.drop_privs();
-                    ::std::mem::drop(kex_data);
-                    let ephemeral = agreement::EphemeralPrivateKey::generate(&X25519, &*RNG).unwrap();
-                    let peer_name = self.internal.peer_name.borrow().clone();
-                    let server_key = keys::asymmetric_key(peer_name.as_ref().map(|x| &**x));
-                    let mut public_key_message: Vec<u8> = server_key.public_key_bytes().to_vec();
-                    public_key_message.insert(0, 0);
-                    self.send_naked(&public_key_message);
-                    let mut buf = Vec::new();
-                    buf.resize(ephemeral.public_key_len() + 8, 0);
-                    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                    byteorder::BE::write_u64(&mut buf[..8], timestamp);
-                    ephemeral.compute_public_key(&mut buf[8..]).unwrap();
-                    self.send_naked(&buf);
-                    self.send_naked(server_key.sign(&buf).as_ref());
-                    let keymaterial = agree_ephemeral(
-                        ephemeral,
-                        &X25519,
-                        Input::from(&self.internal.kex_data.borrow_mut().client_key_evidence.as_ref().unwrap()[8..]),
-                        (),
-                        |x| Ok(x.to_vec()),
-                    ).unwrap();
-                    debug!("Got keymaterial: {:?}", keymaterial);
-                    self.internal.kex_data.borrow_mut().keymaterial = Some(keymaterial);
-                    self.upgrade_to_encrypted();
-                }
-            }
-            NakedState::WaitingForServerKey => {
-                self.alice_only();
-                if let Some(mut msg) = self.recv_naked() {
-                    let version_indicator = msg.remove(0);
-                    assert!(version_indicator == 0);
-                    debug!("Host key: {}", BASE32_NOPAD.encode(&msg));
-                    let peer = self.internal.peer_name.borrow().clone();
-                    if !keys::validate_peer_public_key(&msg, peer.as_ref().map(String::as_ref)) {
-                        panic!("Invalid host key!");
-                    }
-                    self.internal.kex_data.borrow_mut().server_key = Some(msg);
-                    *self.internal.naked_state.borrow_mut() = NakedState::WaitingForServerEphemeral;
-                    self.notify_naked();
-                }
-            }
-            NakedState::WaitingForServerEphemeral => {
-                self.alice_only();
-                if let Some(msg) = self.recv_naked() {
-                    self.internal.kex_data.borrow_mut().server_ephemeral = Some(msg);
-                    *self.internal.naked_state.borrow_mut() = NakedState::WaitingForServerSignature;
-                    self.notify_naked();
-                }
-            }
-            NakedState::WaitingForServerSignature => {
-                self.alice_only();
-                if let Some(msg) = self.recv_naked() {
-                    let mut kex_data = self.internal.kex_data.borrow_mut();
-                    signature::verify(
-                        &signature::ED25519,
-                        Input::from(kex_data.server_key.as_ref().unwrap()),
-                        Input::from(kex_data.server_ephemeral.as_ref().unwrap()),
-                        Input::from(&msg),
-                    ).unwrap();
-                    assert_timestamp(&kex_data.server_ephemeral.as_ref().unwrap()[..8]);
-                    let keymaterial = agree_ephemeral(
-                        kex_data.my_ephemeral_key.take().unwrap(),
-                        &X25519,
-                        Input::from(&kex_data.server_ephemeral.as_ref().unwrap()[8..]),
-                        (),
-                        |x| Ok(x.to_vec()),
-                    ).unwrap();
-                    debug!("Got keymaterial: {:?}", keymaterial);
-                    kex_data.keymaterial = Some(keymaterial);
-                    ::std::mem::drop(kex_data);
-                    self.upgrade_to_encrypted();
-                }
-            }
-        }
-    }
-}
 
-fn assert_timestamp(timestamp: &[u8]) {
-    let time = byteorder::BE::read_u64(&timestamp);
-    let expected_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    if !((time > (expected_time - 60)) && (time < (expected_time + 60))) {
-        error!("Out-of-date kex signature detected. This either means clock-skew or malice.");
-        ::std::process::exit(1);
+                    let peer_public_key = session.get_remote_static().map(|x| x.to_vec());
+                    if peer_public_key.is_none() {
+                        error!("Failed to extract client public key");
+                    }
+                    let peer_public_key = peer_public_key.unwrap();
+
+                    let peer = crate::keys::get_peer_for_public_key(&peer_public_key[..]);
+                    if peer.is_none() {
+                        error!(
+                            "Rejecting connection for unknown public key: {:?}",
+                            ::data_encoding::BASE32_NOPAD.encode(&peer_public_key)
+                        );
+                    }
+
+                    let psk = crate::conf::peer_static_key(peer.as_ref().unwrap().as_str());
+                    if psk.is_none() {
+                        error!("Failed to locate PSK for peer {:?}", peer);
+                        ::std::process::exit(1);
+                    }
+
+                    let result = session.set_psk(2, &psk.unwrap());
+                    if result.is_err() {
+                        error!("Failed to set PSK {:?}", result);
+                        ::std::process::exit(1);
+                    }
+
+                    let result = session.write_message(b"", &mut message_buffer);
+                    if result.is_err() {
+                        error!("Failed to generate handshake response: {:?}", result);
+                        ::std::process::exit(1);
+                    }
+                    self.send_naked(&message_buffer[..result.unwrap()]);
+
+                    let session = session.into_transport_mode().unwrap();
+                    debug!("Handshake successful!");
+
+                    *self.internal.noise_session.borrow_mut() = Some(session);
+
+                    self.drop_privs();
+                    self.upgrade_to_encrypted();
+                }
+            }
+            NakedState::WaitingForResponder => if let Some(message) = self.recv_naked() {
+                let mut buf = [0u8; 65535].to_vec();
+                let result = self
+                    .internal
+                    .noise_session
+                    .borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .read_message(&message, &mut buf);
+                if result.is_err() {
+                    error!("Handshake failed: {:?}", result);
+                    ::std::process::exit(1);
+                }
+                let session = self.internal.noise_session.borrow_mut().take().unwrap().into_transport_mode().unwrap();
+                debug!("Handshake successful!");
+                *self.internal.noise_session.borrow_mut() = Some(session);
+                self.upgrade_to_encrypted();
+            },
+        }
     }
 }

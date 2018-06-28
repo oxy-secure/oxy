@@ -105,50 +105,23 @@ impl Oxy {
                 if compression_type != 0 {
                     Err("Unsupported compression algorithm")?;
                 }
-                let outbound_compression: bool = self
-                    .internal
-                    .underlying_transport
-                    .borrow()
-                    .as_ref()
-                    .expect("Shouldn't happen")
-                    .outbound_compression;
+                let outbound_compression: bool = *self.internal.outbound_compression.borrow();
                 if !outbound_compression {
                     debug!("Activating compression");
                     self.send(CompressionStart { compression_type: 0 });
-                    self.internal
-                        .underlying_transport
-                        .borrow_mut()
-                        .as_mut()
-                        .expect("Shouldn't happen")
-                        .outbound_compression = true;
+                    *self.internal.outbound_compression.borrow_mut() = true;
                 }
             }
             CompressionStart { compression_type } => {
+                warn!("Compression is stubbed out in this build!!! It doesn't actually do anything right now!!");
                 if compression_type != 0 {
                     panic!("Unknown compression algorithm");
                 }
-                self.internal
-                    .underlying_transport
-                    .borrow_mut()
-                    .as_mut()
-                    .expect("Shouldn't happen")
-                    .inbound_compression = true;
-                if !self
-                    .internal
-                    .underlying_transport
-                    .borrow()
-                    .as_ref()
-                    .expect("Shouldn't happen")
-                    .outbound_compression
-                {
+                *self.internal.inbound_compression.borrow_mut() = true;
+                if !*self.internal.outbound_compression.borrow() {
                     debug!("Activating compression.");
                     self.send(CompressionStart { compression_type: 0 });
-                    self.internal
-                        .underlying_transport
-                        .borrow_mut()
-                        .as_mut()
-                        .expect("Shouldn't happen")
-                        .outbound_compression = true;
+                    *self.internal.outbound_compression.borrow_mut() = true;
                 }
             }
             PipeCommand { command } => {
