@@ -1,76 +1,24 @@
 use byteorder::{self, ByteOrder};
-use crate::arg::{self, perspective};
-use data_encoding;
 use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::time::UNIX_EPOCH;
-use transportation::{
-    self,
-    ring::{self, rand::SecureRandom, signature::Ed25519KeyPair},
-    untrusted,
-    EncryptionPerspective::Alice,
-};
+use transportation::ring::{self, rand::SecureRandom};
 
 use parking_lot::Mutex;
 
 lazy_static! {
-    static ref IDENTITY_BYTES: Vec<u8> = identity_bytes_initializer();
     static ref KNOCK_VALUES: Mutex<Vec<(u64, Option<String>, Vec<u8>)>> = Mutex::new(Vec::new());
 }
 
 const KNOCK_ROTATION_TIME: u64 = 60;
 
-fn identity_bytes_initializer() -> Vec<u8> {
-    if let Some(identity) = arg::matches().value_of("identity") {
-        return data_encoding::BASE32_NOPAD.decode(identity.as_bytes()).unwrap();
-    }
-    if let Some(identity) = crate::conf::identity() {
-        return data_encoding::BASE32_NOPAD.decode(identity.as_bytes()).unwrap();
-    }
-    if arg::mode() == "copy" {
-        warn!("No identity provided.");
-        return Vec::new();
-    }
-    if arg::mode() == "guide" || arg::mode() == "keygen" {
-        return Vec::new();
-    }
-    if perspective() == Alice {
-        error!("No identity provided. If the server doesn't know who you are it won't talk to you, and how will it know who you are if you don't know who you are?");
-        ::std::process::exit(1);
-    }
-    if ::nix::unistd::getuid().is_root() {
-        error!("Quickstart mode is not supported when running as root. Please run as a non-root user, or establish configuration files as described in the user guide.");
-        ::std::process::exit(1);
-    }
-    let mut bytes = [0u8; 36].to_vec();
-    transportation::RNG.fill(&mut bytes).unwrap();
-    info!(
-        "Using quickstart mode. Run the client with --identity={}",
-        data_encoding::BASE32_NOPAD.encode(&bytes)
-    );
-    bytes
-}
-
-crate fn get_peer_id(peer: Option<&str>) -> Vec<u8> {
-    trace!("get_peer_id for peer {:?}", peer);
-    if peer.is_none() {
-        return IDENTITY_BYTES.to_vec();
-    }
-    let id = crate::conf::client_identity_for_peer(peer.unwrap());
-    if id.is_none() {
-        return IDENTITY_BYTES.to_vec();
-    }
-    let id = id.unwrap();
-    data_encoding::BASE32_NOPAD.decode(id.as_bytes()).unwrap().to_vec()
-}
-
-crate fn static_key(peer: Option<&str>) -> Vec<u8> {
+crate fn get_static_key(peer: Option<&str>) -> Vec<u8> {
     if let Some(key) = crate::conf::static_key(peer) {
         return key;
     }
-    let id = get_peer_id(peer);
-    id[12..24].to_vec()
+    error!("No PSK found");
+    ::std::process::exit(1);
 }
 
 crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
@@ -82,9 +30,8 @@ crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
     if let Some(data) = crate::conf::default_knock() {
         return data;
     }
-
-    trace!("Failed to load knock from config");
-    get_peer_id(peer)[24..].to_vec()
+    error!("No knock key found");
+    ::std::process::exit(1);
 }
 
 crate fn make_knock(peer: Option<&str>) -> Vec<u8> {
@@ -158,46 +105,25 @@ crate fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
     None
 }
 
-crate fn validate_peer_public_key(key: &[u8], peer: Option<&str>) -> bool {
-    trace!("Validating pubkey for {:?}", peer);
-    if let Some(conf_key) = crate::conf::public_key(peer) {
-        return key[..] == conf_key[..];
-    }
-    let pubkey = asymmetric_key(None);
-    key == pubkey.public_key_bytes()
-}
-
-fn asymmetric_key_from_seed(seed: &[u8]) -> Ed25519KeyPair {
-    let mut seed2 = [0u8; 32];
-    ring::pbkdf2::derive(&ring::digest::SHA512, 10240, b"oxy", seed, &mut seed2);
-    let bytes = untrusted::Input::from(&seed2);
-    ring::signature::Ed25519KeyPair::from_seed_unchecked(bytes).unwrap()
-}
-
-crate fn identity_string() -> String {
-    data_encoding::BASE32_NOPAD.encode(&*IDENTITY_BYTES)
-}
-
-crate fn asymmetric_key(peer: Option<&str>) -> Ed25519KeyPair {
+crate fn get_private_key(peer: Option<&str>) -> Vec<u8> {
     if let Some(key) = crate::conf::asymmetric_key(peer) {
         debug!("Found key in config");
-        if let Some(key) = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&key[..])).ok() {
-            return key;
-        } else {
-            warn!("Invalid privkey in config?");
-        }
+        return key;
     }
-    let id = get_peer_id(peer);
-    debug!("Using identity data: {:?}", id);
-    asymmetric_key_from_seed(&id[..12])
+    error!("No private key found.");
+    ::std::process::exit(1);
 }
 
 crate fn keygen() {
-    let asym = ring::signature::Ed25519KeyPair::generate_pkcs8(&*transportation::RNG).unwrap();
-    println!("privkey = {:?}", ::data_encoding::BASE32_NOPAD.encode(&asym[..]));
-    let asym = ring::signature::Ed25519KeyPair::from_pkcs8(untrusted::Input::from(&asym)).unwrap();
-    let pubkey = ::data_encoding::BASE32_NOPAD.encode(asym.public_key_bytes());
-    println!("pubkey = {:?}", pubkey);
+    let mut dh = ::snow::CryptoResolver::resolve_dh(&::snow::DefaultResolver, &::snow::params::DHChoice::Curve25519).unwrap();
+    let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
+    ::snow::types::Dh::generate(&mut *dh, &mut *rng);
+
+    let privkey = ::snow::types::Dh::privkey(&*dh);
+    let pubkey = ::snow::types::Dh::pubkey(&*dh);
+    println!("privkey = {:?}", ::data_encoding::BASE32_NOPAD.encode(privkey));
+    println!("pubkey = {:?}", ::data_encoding::BASE32_NOPAD.encode(pubkey));
+
     let mut knock = [0u8; 32];
     ::transportation::RNG.fill(&mut knock).unwrap();
     println!("knock = {:?}", ::data_encoding::BASE32_NOPAD.encode(&knock));

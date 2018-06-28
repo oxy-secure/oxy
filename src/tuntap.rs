@@ -75,8 +75,10 @@ impl TunTap {
     }
 
     crate fn send(&self, data: &[u8]) {
-        let result = write(self.fd, data).unwrap();
-        assert!(result == data.len());
+        let result = write(self.fd, data);
+        if result != Ok(data.len()) {
+            warn!("Failed to write tunnel data: {:?}", result);
+        }
     }
 }
 

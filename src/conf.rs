@@ -36,10 +36,6 @@ fn load_conf() -> Conf {
     result
 }
 
-crate fn has_server_conf() -> bool {
-    CONF.server.is_some()
-}
-
 fn load_from_home(path: &str) -> Option<toml::Value> {
     let mut path = path.to_string();
     if path.starts_with("~") {
@@ -93,14 +89,35 @@ impl Conf {
             return;
         }
         let path = path.unwrap();
-        self.server = load_from_home(path);
-    }
-}
+        let mut result = load_from_home(path);
 
-crate fn server_identity() -> Option<&'static str> {
-    match &CONF.server {
-        Some(Table(table)) => table.get("identity").map(|x| x.as_str().expect("Identity is not a string?")),
-        _ => None,
+        let mut name_ticker: u64 = 0;
+
+        if let Some(table) = result.as_mut() {
+            if let Some(clients) = table.get_mut("clients") {
+                if let Some(clients) = clients.as_array_mut() {
+                    for client in clients {
+                        if let Some(client) = client.as_table_mut() {
+                            if !client.contains_key("name") {
+                                client.insert(
+                                    "name".to_string(),
+                                    ::toml::Value::String(format!("generated-client-name-{}", name_ticker)),
+                                );
+                                name_ticker += 1;
+                            } else {
+                                if let Some(name) = client.get("name").unwrap().as_str() {
+                                    if name.starts_with("generated-client-name-") {
+                                        warn!("Warning!!! You are using a statically set client name that starts with 'generated-client-name-'. This is not recommended.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.server = result;
     }
 }
 
@@ -230,38 +247,6 @@ crate fn public_key(peer: Option<&str>) -> Option<Vec<u8>> {
 
 crate fn get_setuser(peer: &str) -> Option<String> {
     Some(client(peer)?.get("setuser")?.as_str()?.to_string())
-}
-
-crate fn client_identity_for_peer(peer: &str) -> Option<&'static str> {
-    debug!("Trying to load a client identity for {}", peer);
-    match &CONF.client {
-        Some(Table(table)) => {
-            let default_identity = table.get("identity").map(|x| x.as_str().expect("Identity is not a string?"));
-            debug!("Default identity is {:?}", default_identity);
-            let servers = table.get("servers");
-            debug!("Servers table is {:?}", servers);
-            match servers {
-                Some(Array(servers)) => {
-                    for server in servers {
-                        debug!("Examining server {:?}", server.as_table().unwrap().get("name"));
-                        if server.as_table().unwrap().get("name").unwrap().as_str().unwrap() == peer {
-                            debug!("Found matching server entry in client config");
-                            let identity = server.as_table().unwrap().get("identity").map(|x| x.as_str().unwrap());
-                            return if identity.is_none() { default_identity } else { identity };
-                        }
-                    }
-                    default_identity
-                }
-                _ => default_identity,
-            }
-        }
-        _ => None,
-    }
-}
-
-crate fn client_identity() -> Option<&'static str> {
-    debug!("Trying to load a client identity");
-    client_identity_for_peer(&crate::arg::destination())
 }
 
 fn host_part<'a>(dest: &'a str) -> &'a str {
@@ -449,11 +434,42 @@ crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
     return result.unwrap().collect();
 }
 
-crate fn identity() -> Option<&'static str> {
-    match crate::arg::mode().as_str() {
-        "server" => server_identity(),
-        "serve-one" => server_identity(),
-        "client" => client_identity(),
-        _ => None,
+crate fn forced_command(peer: Option<&str>) -> Option<String> {
+    serverside_setting(peer, "forced command", "forcedcommand")
+}
+
+crate fn multiplexer(peer: Option<&str>) -> Option<String> {
+    serverside_setting(peer, "multiplexer", "multiplexer")
+}
+
+crate fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Option<String> {
+    if crate::arg::matches().occurrences_of(arg) > 0 {
+        let setting = crate::arg::matches().value_of(arg);
+        if setting.is_some() {
+            return Some(setting.unwrap().to_string());
+        }
     }
+    if peer.is_some() {
+        let client = client(peer.unwrap());
+        if let Some(client) = client {
+            let setting = client.get(key);
+            if let Some(setting) = setting {
+                if let Some(setting) = setting.as_str() {
+                    return Some(setting.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(server) = CONF.server.as_ref() {
+        if let Some(server) = server.as_table() {
+            if let Some(setting) = server.get(key) {
+                if let Some(setting) = setting.as_str() {
+                    return Some(setting.to_string());
+                }
+            }
+        }
+    }
+
+    crate::arg::matches().value_of(arg).map(|x| x.to_string())
 }

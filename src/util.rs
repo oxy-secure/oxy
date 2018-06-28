@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use log::{debug, error, info, log, trace, warn};
 use std::ffi::{CStr, CString};
 
 crate fn format_throughput(bytes: u64, seconds: u64) -> String {

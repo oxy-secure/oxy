@@ -2,7 +2,7 @@ cargo-features = ["edition"]
 
 [package]
 name = "oxy"
-version = "2.0.2"
+version = "3.0.0-dev1"
 authors = ["Jenna Magius <pyrosim@gmail.com>"]
 license = "BSD-2-Clause"
 description = "A security focused remote access tool."
@@ -16,21 +16,21 @@ clap = "2.31"
 toml = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
+serde_cbor = "0.8"
+libflate = "0.1"
 byteorder = "1.2"
 log = "0.4"
 env_logger = "0.5"
 shlex = "0.1"
-transportation = { version = "2", features = ["protocol", "encrypt"] }
+transportation = { git = "https://github.com/oxy-secure/transportation.git", branch = "dev", features = ["encrypt"] }
 lazy_static = "1.0"
 num = "0.1"
-rustyline = "1.0"
-rmp = "0.8"
-rmp-serde = "0.13"
 nix = "0.11"
 libc = "0.2.40"
 data-encoding = "2.1.1"
 textwrap = { version = "0.10", features = ["term_size"] }
 parking_lot = { version = "0.6", features = ["nightly"] }
+snow = "0.2.1"
 
 [target.'cfg(unix)'.dependencies]
 termion = "1.5.1"

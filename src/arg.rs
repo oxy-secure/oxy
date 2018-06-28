@@ -24,7 +24,7 @@ crate fn create_app() -> App<'static, 'static> {
         .takes_value(true)
         .help("Use [identity] as authentication information for connecting to the remote server.")
         .env("OXY_IDENTITY");
-    let command = Arg::with_name("command").index(2);
+    let command = Arg::with_name("command").index(2).multiple(true);
     let l_portfwd = Arg::with_name("local port forward")
         .multiple(true)
         .short("L")
@@ -53,10 +53,6 @@ crate fn create_app() -> App<'static, 'static> {
         .help("The port used for TCP")
         .takes_value(true)
         .default_value("2600");
-    let user = Arg::with_name("user")
-        .long("user")
-        .takes_value(true)
-        .help("The remote username to log in with. Only applicable for servers using --su-mode");
     let via = Arg::with_name("via")
         .long("via")
         .takes_value(true)
@@ -92,6 +88,17 @@ crate fn create_app() -> App<'static, 'static> {
         .short("C")
         .long("compress")
         .help("Enable ZLIB format compression of all transmitted data");
+    let no_tmux = Arg::with_name("no tmux")
+        .long("no-tmux")
+        .help("Do not use a terminal multiplexer as the default pty command");
+    let multiplexer = Arg::with_name("multiplexer")
+        .long("multiplexer")
+        .default_value("/usr/bin/tmux new-session -A -s oxy")
+        .help(
+            "The command to attach to a terminal multiplexer. Ignored if the first component is not an existent file, or if --no-tmux is supplied.",
+        );
+    let tun = Arg::with_name("tun").long("tun").help("Connect two tunnel devices together. This will work if either: both sides of the connection have root privileges (not recommended), or if the devices have been previously created with appropriate permissions (e.g. 'ip tuntap add tun0 mode tun user [youruser]')").takes_value(true).value_name("local[:remote]");
+    let tap = Arg::with_name("tap").long("tap").help("Connect two tap devices together. This will work if either: both sides of the connection have root privileges (not recommended), or if the devices have been previously created with appropriate permissions (e.g. 'ip tuntap add tap0 mode tap user [youruser]')").takes_value(true).value_name("local[:remote]");
     let client_args = vec![
         metacommand.clone(),
         identity.clone(),
@@ -103,10 +110,11 @@ crate fn create_app() -> App<'static, 'static> {
         trusted_xforward,
         server_config.clone(),
         client_config.clone(),
-        user,
         via,
         compression.clone(),
         verbose.clone(),
+        tun,
+        tap,
         command,
     ];
     let server_args = vec![
@@ -116,6 +124,8 @@ crate fn create_app() -> App<'static, 'static> {
         identity.clone(),
         port.clone(),
         verbose.clone(),
+        no_tmux.clone(),
+        multiplexer.clone(),
     ];
 
     let subcommands = vec![
@@ -134,8 +144,7 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(unsafe_reexec),
         SubCommand::with_name("serve-one")
             .about("Accept a single TCP connection, then service it in the same process.")
-            .args(&server_args)
-            .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
+            .args(&server_args),
         SubCommand::with_name("reverse-server")
             .about("Connect out to a listening client. Then, be a server.")
             .args(&server_args)
@@ -150,8 +159,8 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(server_config)
             .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
-            .arg(identity.clone())
-            .arg(verbose.clone()),
+            .arg(&identity)
+            .arg(&verbose),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
     ];

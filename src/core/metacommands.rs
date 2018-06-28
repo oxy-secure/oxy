@@ -66,13 +66,13 @@ fn create_app() -> App<'static, 'static> {
                 "Open a remote PTY. \
                  Happens by default, usually not necessary",
             )
-            .arg(Arg::with_name("command").index(1)),
+            .arg(Arg::with_name("command").index(1).multiple(true)),
         SubCommand::with_name("sh")
             .about(
                 "Run a remote basic-command. \
                  Useful for Windows servers.",
             )
-            .arg(Arg::with_name("command").index(1).required(true)),
+            .arg(Arg::with_name("command").index(1).multiple(true)),
         SubCommand::with_name("exit").about("Exits the Oxy client."),
         SubCommand::with_name("f10").about("Send F10 to the remote"),
         SubCommand::with_name("f12").about("Send F12 to the remote"),
@@ -83,7 +83,7 @@ fn create_app() -> App<'static, 'static> {
             .about("Request the file hash of a file"),
         SubCommand::with_name("pipe")
             .about("Run a command without a pty.")
-            .arg(Arg::with_name("command").index(1).required(true)),
+            .arg(Arg::with_name("command").index(1).multiple(true)),
         SubCommand::with_name("KL")
             .about("Terminate a local portforward")
             .arg(Arg::with_name("spec").index(1).required(true)),
@@ -176,12 +176,21 @@ impl Oxy {
                 let matches = matches2.subcommand_matches(name).unwrap();
                 match name {
                     "sh" => {
-                        self.send(BasicCommand {
-                            command: matches.value_of("command").unwrap().to_string(),
-                        });
+                        let command = matches.values_of("command");
+                        if command.is_none() {
+                            self.log_warn("No command provided!");
+                            return;
+                        }
+                        let command: Vec<String> = command.unwrap().map(|x| x.to_string()).collect();
+                        self.send(BasicCommand { command: command });
                     }
                     "pty" => {
-                        let command = matches.value_of("command").map(|x| x.to_string());
+                        let command = matches.values_of("command");
+                        let command = if command.is_none() {
+                            None
+                        } else {
+                            Some(command.unwrap().map(|x| x.to_string()).collect())
+                        };
                         let id = self.send(PtyRequest { command: command });
                         let proxy = self.clone();
                         #[cfg(unix)]
@@ -215,7 +224,10 @@ impl Oxy {
                         let offset_start = matches.value_of("offset start").map(|x| x.parse().unwrap());
                         let offset_end = matches.value_of("offset end").map(|x| x.parse().unwrap());
 
-                        let id = self.send(StatRequest { path: remote_path.clone() });
+                        let id = self.send(StatRequest {
+                            path:         remote_path.clone(),
+                            follow_links: true,
+                        });
 
                         let proxy = self.clone();
                         self.watch(Rc::new(move |message, _| match message {
@@ -329,7 +341,12 @@ impl Oxy {
                     }
                     "upload" => {
                         let buf: PathBuf = matches.value_of("local path").unwrap().into();
-                        let buf = buf.canonicalize().unwrap();
+                        let buf = buf.canonicalize();
+                        if buf.is_err() {
+                            self.log_warn("Failed to locate local file.");
+                            return;
+                        }
+                        let buf = buf.unwrap();
                         let remote_path = matches.value_of("remote path").unwrap_or("").to_string();
 
                         let metadata = metadata(&buf);
@@ -687,11 +704,12 @@ impl Oxy {
                         });
                     }
                     "pipe" => {
-                        let command = matches.value_of("command");
+                        let command = matches.values_of("command");
                         if command.is_none() {
-                            self.log_warn("No command provided");
+                            self.log_warn("No command provided!");
+                            return;
                         }
-                        let command = command.unwrap().to_string();
+                        let command: Vec<String> = command.unwrap().map(|x| x.to_string()).collect();
                         let reference = self.send(PipeCommand { command });
                         *self.internal.pipecmd_reference.borrow_mut() = Some(reference);
                     }

@@ -133,7 +133,10 @@ impl CopyManager {
         let path = path.to_str().unwrap().to_string();
         let path = path.trim_right_matches('/').to_string();
         info!("Processing {:?}", path);
-        let id = connection.send(StatRequest { path: path.clone() });
+        let id = connection.send(StatRequest {
+            path:         path.clone(),
+            follow_links: true,
+        });
         let proxy = self.clone();
         connection.clone().watch(Rc::new(move |message, _| match message {
             StatResult { reference, is_dir, len, .. } if *reference == id => {
