@@ -18,12 +18,6 @@ crate fn create_app() -> App<'static, 'static> {
         .multiple(true)
         .number_of_values(1)
         .help("A command to run after the connection is established. The same commands from the F10 prompt.");
-    let identity = Arg::with_name("identity")
-        .short("i")
-        .long("identity")
-        .takes_value(true)
-        .help("Use [identity] as authentication information for connecting to the remote server.")
-        .env("OXY_IDENTITY");
     let command = Arg::with_name("command").index(2).multiple(true);
     let l_portfwd = Arg::with_name("local port forward")
         .multiple(true)
@@ -101,7 +95,6 @@ crate fn create_app() -> App<'static, 'static> {
     let tap = Arg::with_name("tap").long("tap").help("Connect two tap devices together. This will work if either: both sides of the connection have root privileges (not recommended), or if the devices have been previously created with appropriate permissions (e.g. 'ip tuntap add tap0 mode tap user [youruser]')").takes_value(true).value_name("local[:remote]");
     let client_args = vec![
         metacommand.clone(),
-        identity.clone(),
         l_portfwd,
         r_portfwd,
         d_portfwd,
@@ -121,7 +114,6 @@ crate fn create_app() -> App<'static, 'static> {
         server_config.clone(),
         client_config.clone(),
         forced_command,
-        identity.clone(),
         port.clone(),
         verbose.clone(),
         no_tmux.clone(),
@@ -159,7 +151,6 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(server_config)
             .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
-            .arg(&identity)
             .arg(&verbose),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
