@@ -115,6 +115,7 @@ impl Oxy {
         let internal = OxyInternal::default();
         *internal.naked_transport.borrow_mut() = Some(bt);
         *internal.last_message_seen.borrow_mut() = Some(Instant::now());
+        *internal.is_server.borrow_mut() = ["server", "serve-one", "reexec"].contains(&crate::arg::mode().as_str());
         let x = Oxy { internal: Rc::new(internal) };
         let y = x.clone();
         set_timeout(Rc::new(move || y.notify_keepalive()), Duration::from_secs(60));
