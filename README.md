@@ -1,3 +1,3 @@
 oxy
 ===
-An SSH-alike. Uses Nose (https://noiseprotocol.org/).
+An SSH-alike. Uses Noise (https://noiseprotocol.org/).
