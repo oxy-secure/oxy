@@ -4,7 +4,6 @@ mod kex;
 mod metacommands;
 mod restrict_message;
 
-use self::kex::NakedState;
 use byteorder::{self, ByteOrder};
 #[cfg(unix)]
 use crate::pty::Pty;
@@ -68,7 +67,6 @@ crate struct OxyInternal {
     local_streams: RefCell<HashMap<u64, PortStream>>,
     remote_streams: RefCell<HashMap<u64, PortStream>>,
     remote_bind_destinations: RefCell<HashMap<u64, String>>,
-    naked_state: RefCell<NakedState>,
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
     last_message_seen: RefCell<Option<Instant>>,
     launched: RefCell<bool>,
@@ -120,13 +118,6 @@ impl Oxy {
         *internal.naked_transport.borrow_mut() = Some(bt);
         *internal.last_message_seen.borrow_mut() = Some(Instant::now());
         let x = Oxy { internal: Rc::new(internal) };
-        let proxy = x.clone();
-        x.internal
-            .naked_transport
-            .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .set_notify(Rc::new(move || proxy.notify_naked()));
         let y = x.clone();
         set_timeout(Rc::new(move || y.notify_keepalive()), Duration::from_secs(60));
         let y = x.clone();
@@ -218,7 +209,12 @@ impl Oxy {
             self.advertise_client_key();
         }
         if self.perspective() == Bob {
-            *self.internal.naked_state.borrow_mut() = NakedState::WaitingForInitiator;
+            let proxy = self.clone();
+            ::transportation::Notifies::set_notify(
+                &*self.internal.naked_transport.borrow_mut().as_mut().unwrap(),
+                Rc::new(move || proxy.server_finish_handshake()),
+            );
+            self.server_finish_handshake();
         }
     }
 
