@@ -1,3 +1,3 @@
 oxy
 ===
-Oxy: A security focused remote access tool.
+An SSH-alike. Uses Nose (https://noiseprotocol.org/).
