@@ -96,6 +96,7 @@ impl Pty {
                 pids.push(fd.unwrap());
             }
         }
+        let empty_signal_mask = nix::sys::signal::SigSet::empty();
 
         match fork() {
             Ok(Parent { child }) => {
@@ -107,6 +108,7 @@ impl Pty {
                 })
             }
             Ok(Child) => {
+                empty_signal_mask.thread_set_mask().unwrap();
                 setsid().unwrap();
                 unsafe { ioctl(child_fd, TIOCSCTTY.into(), 0) };
                 dup2(child_fd, 0).unwrap();
