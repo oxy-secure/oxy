@@ -4,7 +4,6 @@ use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::env;
-use transportation::EncryptionPerspective;
 
 lazy_static! {
     pub(crate) static ref MATCHES: ArgMatches<'static> = create_matches();
@@ -223,15 +222,4 @@ crate fn bind_address() -> String {
         .value_of("bind-address")
         .unwrap_or("0.0.0.0")
         .to_string()
-}
-
-crate fn perspective() -> EncryptionPerspective {
-    use transportation::EncryptionPerspective::{Alice, Bob};
-    match mode().as_str() {
-        "reexec" => Bob,
-        "server" => Bob,
-        "serve-one" => Bob,
-        "reverse-server" => Bob,
-        _ => Alice,
-    }
 }

@@ -4,7 +4,6 @@ use crate::pty::Pty;
 #[cfg(unix)]
 use crate::tuntap::{TunTap, TunTapType};
 use crate::{
-    arg::perspective,
     core::Oxy,
     message::OxyMessage::{self, *},
 };
@@ -27,9 +26,7 @@ use transportation::{
         net::{TcpListener, TcpStream},
         PollOpt, Ready, Token,
     },
-    BufferedTransport,
-    EncryptionPerspective::{Alice, Bob},
-    Notifies,
+    BufferedTransport, Notifies,
 };
 
 impl Oxy {
@@ -80,18 +77,18 @@ impl Oxy {
                 crate::exit::exit(0);
             }
             UsernameAdvertisement { username } => {
-                self.bob_only();
+                self.server_only();
                 *self.internal.peer_user.borrow_mut() = Some(username);
             }
             EnvironmentAdvertisement { key, value } => {
-                self.bob_only();
+                self.server_only();
                 if key.as_str() != "TERM" {
                     Err("Unsupported")?;
                 }
                 ::std::env::set_var(key, value);
             }
             BasicCommand { command } => {
-                self.bob_only();
+                self.server_only();
                 let result = ::std::process::Command::new(&command[0]).args(&command[1..]).output();
                 if let Ok(result) = result {
                     self.send(BasicCommandOutput {
@@ -101,7 +98,7 @@ impl Oxy {
                 }
             }
             CompressionRequest { compression_type } => {
-                self.bob_only();
+                self.server_only();
                 if compression_type != 0 {
                     Err("Unsupported compression algorithm")?;
                 }
@@ -125,7 +122,7 @@ impl Oxy {
                 }
             }
             PipeCommand { command } => {
-                self.bob_only();
+                self.server_only();
                 use std::process::Stdio;
                 let mut result = ::std::process::Command::new(&command[0])
                     .args(&command[1..])
@@ -153,7 +150,7 @@ impl Oxy {
                 self.internal.piped_children.borrow_mut().insert(message_number, child);
             }
             PipeCommandInput { reference, input } => {
-                self.bob_only();
+                self.server_only();
                 if input.is_empty() {
                     debug!("Recieved pipe EOF");
                     self.internal
@@ -178,7 +175,7 @@ impl Oxy {
                 stdout,
                 stderr,
             } => {
-                self.alice_only();
+                self.client_only();
                 if !stdout.is_empty() {
                     let a = ::std::io::stdout();
                     let mut lock = a.lock();
@@ -199,7 +196,7 @@ impl Oxy {
                 }
             }
             AdvertiseXAuth { cookie } => {
-                self.bob_only();
+                self.server_only();
                 ::std::process::Command::new("xauth")
                     .arg("add")
                     .arg(":10")
@@ -210,7 +207,7 @@ impl Oxy {
                 ::std::env::set_var("DISPLAY", ":10");
             }
             PipeCommandExited { reference: _ } => {
-                self.alice_only();
+                self.client_only();
                 // This is crude and temporary
                 // It'd be nice to like... check if we're actually waiting on a pipecommand/if
                 // we're doing anything else also
@@ -218,7 +215,7 @@ impl Oxy {
             }
             #[cfg(unix)]
             PtyRequest { command } => {
-                self.bob_only();
+                self.server_only();
                 let pty = Pty::forkpty(command, self.peer().as_ref().map(|x| x.as_str())).map_err(|_| "forkpty failed")?;
                 let proxy = self.clone();
                 pty.underlying.set_notify(Rc::new(move || proxy.notify_pty()));
@@ -228,17 +225,17 @@ impl Oxy {
             }
             #[cfg(unix)]
             PtySizeAdvertisement { w, h } => {
-                self.bob_only();
+                self.server_only();
                 self.internal.pty.borrow_mut().as_mut().ok_or("No PTY exists")?.set_size(w, h);
             }
             #[cfg(unix)]
             PtyInput { data } => {
-                self.bob_only();
+                self.server_only();
                 self.internal.pty.borrow_mut().as_mut().ok_or("No PTY exists")?.underlying.put(&data[..]);
             }
             #[cfg(unix)]
             PtyOutput { data } => {
-                self.alice_only();
+                self.client_only();
                 if self.internal.ui.borrow().is_some() {
                     self.internal.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
                 } else {
@@ -248,7 +245,7 @@ impl Oxy {
                 }
             }
             BasicCommandOutput { stdout, stderr } => {
-                self.alice_only();
+                self.client_only();
                 self.log_debug(&format!("BasicCommandOutput {:?}, {:?}", stdout, stderr));
                 if let Ok(stdout) = String::from_utf8(stdout) {
                     self.log_debug(&format!("stdout:\n-----\n{}\n-----", stdout));
@@ -260,7 +257,7 @@ impl Oxy {
                 offset_end,
             } => {
                 use std::io::{Seek, SeekFrom};
-                self.bob_only();
+                self.server_only();
                 let path = self.qualify_path(path);
                 let mut file = File::open(path).map_err(|_| "Failed to open file")?;
                 if let Some(offset_start) = offset_start {
@@ -282,7 +279,7 @@ impl Oxy {
                 filepart,
                 offset_start,
             } => {
-                self.bob_only();
+                self.server_only();
                 let path = if !path.is_empty() {
                     path
                 } else {
@@ -347,7 +344,7 @@ impl Oxy {
                 }));
             }
             FileTruncateRequest { path, len } => {
-                self.bob_only();
+                self.server_only();
                 #[cfg(unix)]
                 {
                     use std::{fs::OpenOptions, os::unix::io::AsRawFd};
@@ -365,7 +362,7 @@ impl Oxy {
                 ();
             }
             BindConnectionAccepted { reference } => {
-                assert!(perspective() == Alice);
+                self.client_only();
                 let addr = self
                     .internal
                     .remote_bind_destinations
@@ -405,7 +402,7 @@ impl Oxy {
                 self.internal.remote_streams.borrow_mut().insert(message_number, stream);
             }
             RemoteOpen { addr } => {
-                assert!(perspective() == Bob);
+                self.server_only();
                 if addr.contains('/') {
                     use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
                     let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
@@ -452,7 +449,7 @@ impl Oxy {
                 (callback)();
             }
             RemoteBind { addr } => {
-                assert!(perspective() == Bob);
+                self.server_only();
                 if addr.contains("/") {
                     use nix::{
                         sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType},
@@ -571,7 +568,7 @@ impl Oxy {
             }
             #[cfg(unix)]
             TunnelRequest { tap, name } => {
-                self.bob_only();
+                self.server_only();
                 let mode = if tap { TunTapType::Tap } else { TunTapType::Tun };
                 let tuntap = TunTap::create(mode, &name, message_number, self.clone());
                 self.internal.tuntaps.borrow_mut().insert(message_number, tuntap);
@@ -582,7 +579,7 @@ impl Oxy {
                 borrow.get(&reference).unwrap().send(&data);
             }
             StatRequest { path, follow_links } => {
-                self.bob_only();
+                self.server_only();
                 let path = self.qualify_path(path);
                 let info = if follow_links {
                     ::std::fs::metadata(path).map_err(|_| "Failed to stat")?
@@ -604,7 +601,7 @@ impl Oxy {
                 self.send(message);
             }
             ReadDir { path } => {
-                self.bob_only();
+                self.server_only();
                 let path = self.qualify_path(path);
                 let mut results = Vec::new();
                 let dents = read_dir(path).map_err(|_| "read_dir failed")?;
@@ -621,7 +618,7 @@ impl Oxy {
                 });
             }
             PtyExited { status } => {
-                self.alice_only();
+                self.client_only();
                 debug!("Remote PTY process exited with status {}", status);
                 self.exit(0);
             }
@@ -631,8 +628,8 @@ impl Oxy {
                 offset_end,
                 hash_algorithm,
             } => {
+                use ring::digest::{Context, SHA1, SHA256, SHA512};
                 use std::io::{Read, Seek, SeekFrom};
-                use transportation::ring::digest::{Context, SHA1, SHA256, SHA512};
                 let algorithm = match hash_algorithm {
                     0 => unimplemented!("MD5"),
                     1 => &SHA1,

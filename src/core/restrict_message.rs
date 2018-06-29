@@ -7,7 +7,7 @@ use log::{debug, error, info, log, trace, warn};
 
 impl Oxy {
     crate fn restrict_message(&self, message: OxyMessage) -> Result<OxyMessage, ()> {
-        if self.perspective() == ::transportation::EncryptionPerspective::Alice {
+        if self.is_client() {
             return Ok(message);
         }
         let message = self.restrict_forcedcommand(message)?;

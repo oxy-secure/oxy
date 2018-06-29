@@ -22,7 +22,8 @@ byteorder = "1.2"
 log = "0.4"
 env_logger = "0.5"
 shlex = "0.1"
-transportation = { git = "https://github.com/oxy-secure/transportation.git", branch = "dev", features = ["encrypt"] }
+ring = "0.12"
+transportation = { git = "https://github.com/oxy-secure/transportation.git", branch = "dev" }
 lazy_static = "1.0"
 num = "0.1"
 nix = "0.11"

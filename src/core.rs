@@ -25,14 +25,7 @@ use std::{
     rc::Rc,
     time::{Duration, Instant},
 };
-use transportation::{
-    self,
-    mio::net::TcpListener,
-    ring::rand::SecureRandom,
-    set_timeout, BufferedTransport,
-    EncryptionPerspective::{Alice, Bob},
-    Notifiable, Notifies,
-};
+use transportation::{self, mio::net::TcpListener, set_timeout, BufferedTransport, Notifiable, Notifies};
 
 #[derive(Clone)]
 pub struct Oxy {
@@ -70,6 +63,7 @@ crate struct OxyInternal {
     socks_binds: RefCell<HashMap<u64, SocksBind>>,
     last_message_seen: RefCell<Option<Instant>>,
     launched: RefCell<bool>,
+    is_server: RefCell<bool>,
     response_watchers: RefCell<Vec<Rc<dyn Fn(&OxyMessage, u64) -> bool>>>,
     metacommand_queue: RefCell<Vec<Vec<String>>>,
     is_daemon: RefCell<bool>,
@@ -94,22 +88,26 @@ crate struct OxyInternal {
 }
 
 impl Oxy {
-    fn alice_only(&self) {
-        if !(self.perspective() == Alice) {
+    fn client_only(&self) {
+        if !self.is_client() {
             error!("The peer sent a message that is only acceptable for a server to send to a client, but I am not a client");
             ::std::process::exit(1);
         }
     }
 
-    fn bob_only(&self) {
-        if !(self.perspective() == Bob) {
+    fn server_only(&self) {
+        if !self.is_server() {
             error!("The peer sent a message that is only acceptable for a client to send to a server, but I am not a server");
             ::std::process::exit(1);
         }
     }
 
-    fn perspective(&self) -> transportation::EncryptionPerspective {
-        crate::arg::perspective()
+    fn is_server(&self) -> bool {
+        *self.internal.is_server.borrow()
+    }
+
+    fn is_client(&self) -> bool {
+        !self.is_server()
     }
 
     pub fn create<T: Into<BufferedTransport>>(transport: T) -> Oxy {
@@ -161,7 +159,7 @@ impl Oxy {
     }
 
     fn create_ui(&self) {
-        if self.perspective() == Bob {
+        if self.is_server() {
             return;
         }
         #[cfg(unix)]
@@ -195,7 +193,7 @@ impl Oxy {
                     use nix::sys::signal::{kill, Signal::*};
                     kill(proxy.internal.pty.borrow().as_ref().unwrap().child_pid, SIGTERM).ok();
                 }
-                if proxy.perspective() == Alice && !*proxy.internal.is_daemon.borrow() {
+                if proxy.is_client() && !*proxy.internal.is_daemon.borrow() {
                     eprint!("\r");
                     info!("Goodbye!");
                 }
@@ -205,16 +203,17 @@ impl Oxy {
             panic!("Attempted to launch an Oxy instance twice.");
         }
         *self.internal.launched.borrow_mut() = true;
-        if self.perspective() == Alice {
+        if self.is_client() {
             self.advertise_client_key();
-        }
-        if self.perspective() == Bob {
+        } else if self.is_server() {
             let proxy = self.clone();
             ::transportation::Notifies::set_notify(
                 &*self.internal.naked_transport.borrow_mut().as_mut().unwrap(),
                 Rc::new(move || proxy.server_finish_handshake()),
             );
             self.server_finish_handshake();
+        } else {
+            unreachable!();
         }
     }
 
@@ -324,9 +323,9 @@ impl Oxy {
         let remote_addr = self.internal.port_binds.borrow_mut().get_mut(&token).unwrap().remote_spec.clone();
         let local_addr = self.internal.port_binds.borrow_mut().get_mut(&token).unwrap().local_spec.clone();
         debug!("Accepting a connection for local bind {}", local_addr);
-        let stream_token = match self.perspective() {
-            Alice => self.send(RemoteOpen { addr: remote_addr }),
-            Bob => self.send(BindConnectionAccepted { reference: token }),
+        let stream_token = match self.is_client() {
+            true => self.send(RemoteOpen { addr: remote_addr }),
+            false => self.send(BindConnectionAccepted { reference: token }),
         };
         let bt = BufferedTransport::from(stream.0);
         let stream = PortStream {
@@ -524,7 +523,7 @@ impl Oxy {
     fn notify_signal(&self) {
         match transportation::get_signal_name().as_str() {
             "SIGWINCH" => {
-                if self.perspective() == Alice && self.internal.ui.borrow().is_some() {
+                if self.is_client() && self.internal.ui.borrow().is_some() {
                     let (w, h) = self.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
                     self.send(PtySizeAdvertisement { w, h });
                 }
@@ -564,7 +563,7 @@ impl Oxy {
     }
 
     fn do_post_auth(&self) {
-        if self.perspective() == Alice {
+        if self.is_client() {
             self.pop_metacommand();
             self.activate_compression();
             if !*self.internal.is_daemon.borrow() {
@@ -701,7 +700,8 @@ impl Oxy {
             "untrusted"
         };
         let mut nonce = [0u8; 8];
-        transportation::RNG.fill(&mut nonce).unwrap();
+        let rng = ::ring::rand::SystemRandom::new();
+        ::ring::rand::SecureRandom::fill(&rng, &mut nonce).unwrap();
         let cookiefile = format!("/tmp/oxy-{}.xauth", ::data_encoding::HEXUPPER.encode(&nonce));
         debug!("xauth cookie filename: {}", &cookiefile);
         let xauth = ::std::process::Command::new("xauth")

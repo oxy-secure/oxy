@@ -3,7 +3,6 @@ use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::time::UNIX_EPOCH;
-use transportation::ring::{self, rand::SecureRandom};
 
 use parking_lot::Mutex;
 
@@ -125,9 +124,10 @@ crate fn keygen() {
     println!("pubkey = {:?}", ::data_encoding::BASE32_NOPAD.encode(pubkey));
 
     let mut knock = [0u8; 32];
-    ::transportation::RNG.fill(&mut knock).unwrap();
+    let rng = ::ring::rand::SystemRandom::new();
+    ::ring::rand::SecureRandom::fill(&rng, &mut knock).unwrap();
     println!("knock = {:?}", ::data_encoding::BASE32_NOPAD.encode(&knock));
     let mut psk = [0u8; 32];
-    ::transportation::RNG.fill(&mut psk).unwrap();
+    ::ring::rand::SecureRandom::fill(&rng, &mut psk).unwrap();
     println!("psk = {:?}", ::data_encoding::BASE32_NOPAD.encode(&psk));
 }
