@@ -103,6 +103,9 @@ impl CopyManager {
             "Transferring: {:?} Transferred: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}",
             filename, percentage, decimal, total_bytes, total_seconds, throughput
         );
+        #[cfg(not(unix))]
+        let width = 80;
+        #[cfg(unix)]
         let width = ::termion::terminal_size().unwrap_or((80, 24)).0 as u64;
         let barwidth: u64 = (width * percentage) / 100;
         let mut line2 = "=".repeat(barwidth as usize);

@@ -50,56 +50,61 @@ crate fn run() {
 }
 
 crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
-    use crate::message::OxyMessage::*;
-    use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
-    use transportation::BufferedTransport;
-    let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
-    let bt = BufferedTransport::from(socka);
-    proxy_daemon.set_daemon();
-    let dest = dest.to_string();
-    proxy_daemon.clone().push_post_auth_hook(Rc::new(move || {
-        let proxy_daemon = proxy_daemon.clone();
-        let knock_port = keys::knock_port(Some(&dest));
-        let knock_host = crate::conf::host_for_dest(&dest);
-        let knock_value = keys::make_knock(Some(&dest));
-        let knock_dest = format!("{}:{}", knock_host, knock_port);
-        proxy_daemon.send(KnockForward {
-            destination: knock_dest,
-            knock:       knock_value,
-        });
-        let stream_number = proxy_daemon.send(RemoteOpen {
-            addr: crate::conf::canonicalize_destination(&dest),
-        });
-        let bt = bt.clone();
-        let bt2 = bt.clone();
-        let proxy_daemon2 = proxy_daemon.clone();
-        let notify = Rc::new(move || {
-            // TODO: Unlimited buffering has_write_space etc.
-            let data = bt.take();
-            proxy_daemon.send(RemoteStreamData {
-                data,
-                reference: stream_number,
+    #[cfg(unix)]
+    {
+        use crate::message::OxyMessage::*;
+        use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
+        use transportation::BufferedTransport;
+        let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
+        let bt = BufferedTransport::from(socka);
+        proxy_daemon.set_daemon();
+        let dest = dest.to_string();
+        proxy_daemon.clone().push_post_auth_hook(Rc::new(move || {
+            let proxy_daemon = proxy_daemon.clone();
+            let knock_port = keys::knock_port(Some(&dest));
+            let knock_host = crate::conf::host_for_dest(&dest);
+            let knock_value = keys::make_knock(Some(&dest));
+            let knock_dest = format!("{}:{}", knock_host, knock_port);
+            proxy_daemon.send(KnockForward {
+                destination: knock_dest,
+                knock:       knock_value,
             });
-        });
-        let bt = bt2;
-        ::transportation::Notifies::set_notify(&bt.clone(), notify.clone());
-        notify();
-        let proxy_daemon = proxy_daemon2;
-        proxy_daemon.clone().watch(Rc::new(move |message, _| match message {
-            LocalStreamData { data, reference } if *reference == stream_number => {
-                bt.put(&data[..]);
-                proxy_daemon.claim_message();
-                false
-            }
-            LocalStreamClosed { reference } if *reference == stream_number => {
-                bt.close();
-                proxy_daemon.claim_message();
-                true
-            }
-            _ => false,
+            let stream_number = proxy_daemon.send(RemoteOpen {
+                addr: crate::conf::canonicalize_destination(&dest),
+            });
+            let bt = bt.clone();
+            let bt2 = bt.clone();
+            let proxy_daemon2 = proxy_daemon.clone();
+            let notify = Rc::new(move || {
+                // TODO: Unlimited buffering has_write_space etc.
+                let data = bt.take();
+                proxy_daemon.send(RemoteStreamData {
+                    data,
+                    reference: stream_number,
+                });
+            });
+            let bt = bt2;
+            ::transportation::Notifies::set_notify(&bt.clone(), notify.clone());
+            notify();
+            let proxy_daemon = proxy_daemon2;
+            proxy_daemon.clone().watch(Rc::new(move |message, _| match message {
+                LocalStreamData { data, reference } if *reference == stream_number => {
+                    bt.put(&data[..]);
+                    proxy_daemon.claim_message();
+                    false
+                }
+                LocalStreamClosed { reference } if *reference == stream_number => {
+                    bt.close();
+                    proxy_daemon.claim_message();
+                    true
+                }
+                _ => false,
+            }));
         }));
-    }));
-    Oxy::create(sockb)
+        Oxy::create(sockb)
+    }
+    #[cfg(not(unix))]
+    unimplemented!();
 }
 
 crate fn connect(destination: &str) -> Oxy {

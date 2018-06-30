@@ -63,6 +63,7 @@ crate struct Pwent {
     crate shell: String,
 }
 
+#[cfg(unix)]
 fn extract_pwent(raw: *mut ::libc::passwd) -> Result<Pwent, ()> {
     if raw as usize == 0 {
         return Err(());
@@ -78,17 +79,20 @@ fn extract_pwent(raw: *mut ::libc::passwd) -> Result<Pwent, ()> {
     Ok(result)
 }
 
+#[cfg(unix)]
 crate fn getpwnam(name: &str) -> Result<Pwent, ()> {
     let name = CString::new(name).map_err(|_| ())?;
     let raw = unsafe { libc::getpwnam(name.as_ptr() as *const _) };
     extract_pwent(raw)
 }
 
+#[cfg(unix)]
 crate fn getpwuid(uid: u32) -> Result<Pwent, ()> {
     let raw = unsafe { libc::getpwuid(uid) };
     extract_pwent(raw)
 }
 
+#[cfg(unix)]
 crate fn current_user_pw() -> Result<Pwent, ()> {
     let uid = unsafe { libc::getuid() };
     getpwuid(uid)

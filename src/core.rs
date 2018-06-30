@@ -560,7 +560,11 @@ impl Oxy {
     }
 
     fn interactive(&self) -> bool {
-        ::termion::is_tty(&::std::io::stdout()) && ::termion::is_tty(&::std::io::stdin())
+        #[cfg(not(unix))]
+        return false;
+
+        #[cfg(unix)]
+        return ::termion::is_tty(&::std::io::stdout()) && ::termion::is_tty(&::std::io::stdin());
     }
 
     fn do_post_auth(&self) {

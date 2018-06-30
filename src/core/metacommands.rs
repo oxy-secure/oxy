@@ -432,75 +432,80 @@ impl Oxy {
                             local_spec = format!("localhost:{}", local_spec);
                         }
                         if local_spec.contains('/') {
-                            use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
-                            let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None);
-                            if socket.is_err() {
-                                self.log_warn("Failed to create socket");
-                                return;
-                            }
-                            let socket = socket.unwrap();
-                            let path = PathBuf::from(local_spec.clone());
-                            let sockaddr = SockAddr::new_unix(&path);
-                            if sockaddr.is_err() {
-                                self.log_warn("Failed to parse socket address");
-                                return;
-                            }
-                            let sockaddr = sockaddr.unwrap();
-                            let bind_result = bind(socket, &sockaddr);
-                            if bind_result.is_err() {
-                                self.log_warn(&format!("Failed to bind {}", local_spec));
-                            }
-                            let listen_result = listen(socket, 10);
-                            if listen_result.is_err() {
-                                self.log_warn(&format!("Failed to listen {}", local_spec));
-                            }
-                            let token = Rc::new(RefCell::new(0));
-                            let token2 = token.clone();
-                            let proxy = self.clone();
-                            let local_spec2 = local_spec.clone();
-                            let token3 = transportation::insert_listener(Rc::new(move || {
-                                let token = token.clone();
-                                let peer = accept(socket);
-                                if peer.is_err() {
-                                    proxy.log_warn(&format!("Failed to accept connection on {}", local_spec));
-                                    transportation::remove_listener(*token.borrow());
+                            #[cfg(not(unix))]
+                            unimplemented!();
+                            #[cfg(unix)]
+                            {
+                                use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                                let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None);
+                                if socket.is_err() {
+                                    self.log_warn("Failed to create socket");
                                     return;
                                 }
-                                let peer = peer.unwrap();
-                                let stream_token = proxy.send(RemoteOpen {
-                                    addr: remote_spec.to_string(),
+                                let socket = socket.unwrap();
+                                let path = PathBuf::from(local_spec.clone());
+                                let sockaddr = SockAddr::new_unix(&path);
+                                if sockaddr.is_err() {
+                                    self.log_warn("Failed to parse socket address");
+                                    return;
+                                }
+                                let sockaddr = sockaddr.unwrap();
+                                let bind_result = bind(socket, &sockaddr);
+                                if bind_result.is_err() {
+                                    self.log_warn(&format!("Failed to bind {}", local_spec));
+                                }
+                                let listen_result = listen(socket, 10);
+                                if listen_result.is_err() {
+                                    self.log_warn(&format!("Failed to listen {}", local_spec));
+                                }
+                                let token = Rc::new(RefCell::new(0));
+                                let token2 = token.clone();
+                                let proxy = self.clone();
+                                let local_spec2 = local_spec.clone();
+                                let token3 = transportation::insert_listener(Rc::new(move || {
+                                    let token = token.clone();
+                                    let peer = accept(socket);
+                                    if peer.is_err() {
+                                        proxy.log_warn(&format!("Failed to accept connection on {}", local_spec));
+                                        transportation::remove_listener(*token.borrow());
+                                        return;
+                                    }
+                                    let peer = peer.unwrap();
+                                    let stream_token = proxy.send(RemoteOpen {
+                                        addr: remote_spec.to_string(),
+                                    });
+                                    let bt = BufferedTransport::from(peer);
+                                    let tracker = super::PortStream {
+                                        stream: bt,
+                                        token:  stream_token,
+                                        oxy:    proxy.clone(),
+                                        local:  true,
+                                    };
+                                    let tracker2 = Rc::new(tracker.clone());
+                                    tracker.stream.set_notify(tracker2);
+                                    proxy.internal.local_streams.borrow_mut().insert(stream_token, tracker);
+                                }));
+                                *token2.borrow_mut() = token3;
+                                transportation::borrow_poll(|poll| {
+                                    poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
+                                        .unwrap()
                                 });
-                                let bt = BufferedTransport::from(peer);
-                                let tracker = super::PortStream {
-                                    stream: bt,
-                                    token:  stream_token,
-                                    oxy:    proxy.clone(),
-                                    local:  true,
-                                };
-                                let tracker2 = Rc::new(tracker.clone());
-                                tracker.stream.set_notify(tracker2);
-                                proxy.internal.local_streams.borrow_mut().insert(stream_token, tracker);
-                            }));
-                            *token2.borrow_mut() = token3;
-                            transportation::borrow_poll(|poll| {
-                                poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
-                                    .unwrap()
-                            });
-                            self.log_info("Forwarding port");
-                            self.internal.local_bind_cleaners.borrow_mut().insert(
-                                local_spec2,
-                                Rc::new(move || {
-                                    use nix::unistd::{close, unlink};
-                                    transportation::remove_listener(token3);
-                                    if close(socket).is_err() {
-                                        warn!("Error closing socks socket");
-                                    }
-                                    if unlink(&path).is_err() {
-                                        warn!("Error removing socks socket");
-                                    }
-                                }),
-                            );
-                            return;
+                                self.log_info("Forwarding port");
+                                self.internal.local_bind_cleaners.borrow_mut().insert(
+                                    local_spec2,
+                                    Rc::new(move || {
+                                        use nix::unistd::{close, unlink};
+                                        transportation::remove_listener(token3);
+                                        if close(socket).is_err() {
+                                            warn!("Error closing socks socket");
+                                        }
+                                        if unlink(&path).is_err() {
+                                            warn!("Error removing socks socket");
+                                        }
+                                    }),
+                                );
+                                return;
+                            }
                         }
                         let bind = ::std::net::TcpListener::bind(&local_spec).unwrap();
                         let bind = TcpListener::from_std(bind).unwrap();
@@ -594,70 +599,75 @@ impl Oxy {
                             local_spec = format!("localhost:{}", local_spec);
                         }
                         if local_spec.contains("/") {
-                            use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
-                            let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None);
-                            if socket.is_err() {
-                                self.log_warn("Failed to create socket");
-                                return;
-                            }
-                            let socket = socket.unwrap();
-                            let path = PathBuf::from(local_spec.clone());
-                            let sockaddr = SockAddr::new_unix(&path);
-                            if sockaddr.is_err() {
-                                self.log_warn("Failed to parse socket address");
-                                return;
-                            }
-                            let sockaddr = sockaddr.unwrap();
-                            let bind_result = bind(socket, &sockaddr);
-                            if bind_result.is_err() {
-                                self.log_warn(&format!("Failed to bind {}", local_spec));
-                            }
-                            let listen_result = listen(socket, 10);
-                            if listen_result.is_err() {
-                                self.log_warn(&format!("Failed to listen {}", local_spec));
-                            }
-                            let token = Rc::new(RefCell::new(0));
-                            let token2 = token.clone();
-                            let proxy = self.clone();
-                            let local_spec2 = local_spec.clone();
-                            let token3 = transportation::insert_listener(Rc::new(move || {
-                                let token = token.clone();
-                                let peer = accept(socket);
-                                if peer.is_err() {
-                                    proxy.log_warn(&format!("Failed to accept connection on {}", local_spec));
-                                    transportation::remove_listener(*token.borrow());
+                            #[cfg(not(unix))]
+                            unimplemented!();
+                            #[cfg(unix)]
+                            {
+                                use nix::sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                                let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None);
+                                if socket.is_err() {
+                                    self.log_warn("Failed to create socket");
                                     return;
                                 }
-                                proxy.log_info("Accepted SOCKS connection");
-                                let peer = peer.unwrap();
-                                let bt = BufferedTransport::from(peer);
-                                let sproxy = super::socks::SocksConnectionNotificationProxy {
-                                    oxy: proxy.clone(),
-                                    bt,
-                                    state: Rc::new(RefCell::new(super::socks::SocksState::Initial)),
-                                };
-                                let sproxy = Rc::new(sproxy);
-                                sproxy.bt.set_notify(sproxy.clone());
-                            }));
-                            *token2.borrow_mut() = token3;
-                            transportation::borrow_poll(|poll| {
-                                poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
-                                    .unwrap()
-                            });
-                            self.internal.socks_bind_cleaners.borrow_mut().insert(
-                                local_spec2,
-                                Rc::new(move || {
-                                    use nix::unistd::{close, unlink};
-                                    transportation::remove_listener(token3);
-                                    if close(socket).is_err() {
-                                        warn!("Error closing socks socket");
+                                let socket = socket.unwrap();
+                                let path = PathBuf::from(local_spec.clone());
+                                let sockaddr = SockAddr::new_unix(&path);
+                                if sockaddr.is_err() {
+                                    self.log_warn("Failed to parse socket address");
+                                    return;
+                                }
+                                let sockaddr = sockaddr.unwrap();
+                                let bind_result = bind(socket, &sockaddr);
+                                if bind_result.is_err() {
+                                    self.log_warn(&format!("Failed to bind {}", local_spec));
+                                }
+                                let listen_result = listen(socket, 10);
+                                if listen_result.is_err() {
+                                    self.log_warn(&format!("Failed to listen {}", local_spec));
+                                }
+                                let token = Rc::new(RefCell::new(0));
+                                let token2 = token.clone();
+                                let proxy = self.clone();
+                                let local_spec2 = local_spec.clone();
+                                let token3 = transportation::insert_listener(Rc::new(move || {
+                                    let token = token.clone();
+                                    let peer = accept(socket);
+                                    if peer.is_err() {
+                                        proxy.log_warn(&format!("Failed to accept connection on {}", local_spec));
+                                        transportation::remove_listener(*token.borrow());
+                                        return;
                                     }
-                                    if unlink(&path).is_err() {
-                                        warn!("Error removing socks socket");
-                                    }
-                                }),
-                            );
-                            return;
+                                    proxy.log_info("Accepted SOCKS connection");
+                                    let peer = peer.unwrap();
+                                    let bt = BufferedTransport::from(peer);
+                                    let sproxy = super::socks::SocksConnectionNotificationProxy {
+                                        oxy: proxy.clone(),
+                                        bt,
+                                        state: Rc::new(RefCell::new(super::socks::SocksState::Initial)),
+                                    };
+                                    let sproxy = Rc::new(sproxy);
+                                    sproxy.bt.set_notify(sproxy.clone());
+                                }));
+                                *token2.borrow_mut() = token3;
+                                transportation::borrow_poll(|poll| {
+                                    poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
+                                        .unwrap()
+                                });
+                                self.internal.socks_bind_cleaners.borrow_mut().insert(
+                                    local_spec2,
+                                    Rc::new(move || {
+                                        use nix::unistd::{close, unlink};
+                                        transportation::remove_listener(token3);
+                                        if close(socket).is_err() {
+                                            warn!("Error closing socks socket");
+                                        }
+                                        if unlink(&path).is_err() {
+                                            warn!("Error removing socks socket");
+                                        }
+                                    }),
+                                );
+                                return;
+                            }
                         }
                         let bind = ::std::net::TcpListener::bind(&local_spec).unwrap();
                         let bind = TcpListener::from_std(bind).unwrap();

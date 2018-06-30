@@ -28,12 +28,12 @@ struct UiPlatformData {
     raw: Option<RawTerminal<File>>,
 }
 
-#[cfg(windows)]
+#[cfg(not(unix))]
 struct UiPlatformData {}
 
 impl Ui {
     crate fn create() -> Ui {
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         {
             unimplemented!();
         }
@@ -145,7 +145,7 @@ impl Ui {
     }
 
     crate fn pty_data(&self, data: &[u8]) {
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         unimplemented!();
         #[cfg(unix)]
         {
@@ -157,7 +157,7 @@ impl Ui {
     }
 
     crate fn pty_size(&self) -> (u16, u16) {
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         unimplemented!();
         // Maybe later we'll want to save space for other UI elements
         // (download progress indicators?)

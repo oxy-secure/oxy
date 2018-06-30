@@ -44,12 +44,17 @@ impl Oxy {
 
     fn qualify_path(&self, path: String) -> PathBuf {
         let mut path: PathBuf = path.into();
-        if !path.is_absolute() && self.internal.pty.borrow_mut().is_some() {
-            let mut base_path: PathBuf = self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd().into();
-            base_path.push(path);
-            path = base_path;
+        #[cfg(not(unix))]
+        return path;
+        #[cfg(unix)]
+        {
+            if !path.is_absolute() && self.internal.pty.borrow_mut().is_some() {
+                let mut base_path: PathBuf = self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd().into();
+                base_path.push(path);
+                path = base_path;
+            }
+            path
         }
-        path
     }
 
     pub(crate) fn handle_message(&self, message: OxyMessage, message_number: u64) -> Result<(), String> {
@@ -123,31 +128,36 @@ impl Oxy {
             }
             PipeCommand { command } => {
                 self.server_only();
-                use std::process::Stdio;
-                let mut result = ::std::process::Command::new(&command[0])
-                    .args(&command[1..])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .stdin(Stdio::piped())
-                    .spawn()
-                    .map_err(|x| format!("Spawn failed: {:?}", x))?;
-                use std::os::unix::io::IntoRawFd;
-                let inp = BufferedTransport::from(result.stdin.take().unwrap().into_raw_fd());
-                let out = BufferedTransport::from(result.stdout.take().unwrap().into_raw_fd());
-                let err = BufferedTransport::from(result.stderr.take().unwrap().into_raw_fd());
-                let proxy = self.clone();
-                let callback = Rc::new(move || {
-                    proxy.notify_pipe_child(message_number);
-                });
-                out.set_notify(callback.clone());
-                err.set_notify(callback.clone());
-                let child = super::PipeChild {
-                    child: result,
-                    inp,
-                    out,
-                    err,
-                };
-                self.internal.piped_children.borrow_mut().insert(message_number, child);
+                #[cfg(not(unix))]
+                unimplemented!();
+                #[cfg(unix)]
+                {
+                    use std::process::Stdio;
+                    let mut result = ::std::process::Command::new(&command[0])
+                        .args(&command[1..])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .stdin(Stdio::piped())
+                        .spawn()
+                        .map_err(|x| format!("Spawn failed: {:?}", x))?;
+                    use std::os::unix::io::IntoRawFd;
+                    let inp = BufferedTransport::from(result.stdin.take().unwrap().into_raw_fd());
+                    let out = BufferedTransport::from(result.stdout.take().unwrap().into_raw_fd());
+                    let err = BufferedTransport::from(result.stderr.take().unwrap().into_raw_fd());
+                    let proxy = self.clone();
+                    let callback = Rc::new(move || {
+                        proxy.notify_pipe_child(message_number);
+                    });
+                    out.set_notify(callback.clone());
+                    err.set_notify(callback.clone());
+                    let child = super::PipeChild {
+                        child: result,
+                        inp,
+                        out,
+                        err,
+                    };
+                    self.internal.piped_children.borrow_mut().insert(message_number, child);
+                }
             }
             PipeCommandInput { reference, input } => {
                 self.server_only();
@@ -247,9 +257,10 @@ impl Oxy {
             BasicCommandOutput { stdout, stderr } => {
                 self.client_only();
                 self.log_debug(&format!("BasicCommandOutput {:?}, {:?}", stdout, stderr));
-                if let Ok(stdout) = String::from_utf8(stdout) {
-                    self.log_debug(&format!("stdout:\n-----\n{}\n-----", stdout));
-                }
+                let stdout = String::from_utf8_lossy(&stdout);
+                self.log_info(&format!("stdout:\n-----\n{}\n-----", stdout));
+                let stderr = String::from_utf8_lossy(&stderr);
+                self.log_info(&format!("stdout:\n-----\n{}\n-----", stderr));
             }
             DownloadRequest {
                 path,
@@ -280,28 +291,7 @@ impl Oxy {
                 offset_start,
             } => {
                 self.server_only();
-                let path = if !path.is_empty() {
-                    path
-                } else {
-                    if self.internal.pty.borrow_mut().is_some() {
-                        self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd()
-                    } else {
-                        ".".to_string()
-                    }
-                };
-                let path: PathBuf = path.into();
-                let mut path = if path.is_absolute() {
-                    path
-                } else {
-                    let context = if self.internal.pty.borrow_mut().is_some() {
-                        self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd()
-                    } else {
-                        ".".to_string()
-                    };
-                    let mut context: PathBuf = context.into();
-                    context.push(path);
-                    context
-                };
+                let mut path = self.qualify_path(path);
                 ::std::fs::create_dir_all(&path).ok();
                 path.push(filepart);
                 info!("Trying to upload to {:?}", path);
@@ -371,21 +361,26 @@ impl Oxy {
                     .ok_or("invalid_reference")?
                     .clone();
                 if addr.contains('/') {
-                    use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
-                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
-                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
-                    connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
-                    let bt = BufferedTransport::from(socket);
-                    let stream = PortStream {
-                        stream: bt,
-                        token:  message_number,
-                        oxy:    self.clone(),
-                        local:  false,
-                    };
-                    let stream2 = Rc::new(stream.clone());
-                    stream.stream.set_notify(stream2);
-                    self.internal.remote_streams.borrow_mut().insert(message_number, stream);
-                    return Ok(());
+                    #[cfg(not(unix))]
+                    unimplemented!();
+                    #[cfg(unix)]
+                    {
+                        use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                        let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                        let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                        connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
+                        let bt = BufferedTransport::from(socket);
+                        let stream = PortStream {
+                            stream: bt,
+                            token:  message_number,
+                            oxy:    self.clone(),
+                            local:  false,
+                        };
+                        let stream2 = Rc::new(stream.clone());
+                        stream.stream.set_notify(stream2);
+                        self.internal.remote_streams.borrow_mut().insert(message_number, stream);
+                        return Ok(());
+                    }
                 }
                 let mut addr = addr.to_socket_addrs().map_err(|_| "failed to resolve destination")?;
                 let addr = addr.next().ok_or("Failed to resolve_destination")?;
@@ -404,21 +399,26 @@ impl Oxy {
             RemoteOpen { addr } => {
                 self.server_only();
                 if addr.contains('/') {
-                    use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
-                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
-                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
-                    connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
-                    let bt = BufferedTransport::from(socket);
-                    let stream = PortStream {
-                        stream: bt,
-                        token:  message_number,
-                        oxy:    self.clone(),
-                        local:  false,
-                    };
-                    let stream2 = Rc::new(stream.clone());
-                    stream.stream.set_notify(stream2);
-                    self.internal.remote_streams.borrow_mut().insert(message_number, stream);
-                    return Ok(());
+                    #[cfg(not(unix))]
+                    unimplemented!();
+                    #[cfg(unix)]
+                    {
+                        use nix::sys::socket::{connect, socket, AddressFamily, SockAddr, SockFlag, SockType};
+                        let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                        let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                        connect(socket, &sockaddr).map_err(|_| "Failed to connect")?;
+                        let bt = BufferedTransport::from(socket);
+                        let stream = PortStream {
+                            stream: bt,
+                            token:  message_number,
+                            oxy:    self.clone(),
+                            local:  false,
+                        };
+                        let stream2 = Rc::new(stream.clone());
+                        stream.stream.set_notify(stream2);
+                        self.internal.remote_streams.borrow_mut().insert(message_number, stream);
+                        return Ok(());
+                    }
                 }
                 let dest = addr
                     .to_socket_addrs()
@@ -451,61 +451,66 @@ impl Oxy {
             RemoteBind { addr } => {
                 self.server_only();
                 if addr.contains("/") {
-                    use nix::{
-                        sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType},
-                        unistd::{close, unlink},
-                    };
-                    let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
-                    let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
-                    bind(socket, &sockaddr).map_err(|_| "Failed to bind")?;
-                    listen(socket, 10).map_err(|_| "Failed to listen")?;
-                    debug!("Remote bind successful");
-                    let token = Rc::new(RefCell::new(0));
-                    let token2 = token.clone();
-                    let proxy = self.clone();
-                    let addr2 = addr.clone();
-                    let token3 = transportation::insert_listener(Rc::new(move || {
-                        let addr = addr.clone();
-                        let token = token.clone();
-                        let peer = accept(socket);
-                        debug!("Accepted connection");
-                        if peer.is_err() {
-                            proxy.log_warn(&format!("Failed to accept connection on {}", addr));
-                            transportation::remove_listener(*token.borrow());
-                            return;
-                        }
-                        let peer = peer.unwrap();
-                        let stream_token = proxy.send(BindConnectionAccepted { reference: message_number });
-                        let bt = BufferedTransport::from(peer);
-                        let tracker = super::PortStream {
-                            stream: bt,
-                            token:  stream_token,
-                            oxy:    proxy.clone(),
-                            local:  true,
+                    #[cfg(not(unix))]
+                    unimplemented!();
+                    #[cfg(unix)]
+                    {
+                        use nix::{
+                            sys::socket::{accept, bind, listen, socket, AddressFamily, SockAddr, SockFlag, SockType},
+                            unistd::{close, unlink},
                         };
-                        let tracker2 = Rc::new(tracker.clone());
-                        tracker.stream.set_notify(tracker2);
-                        proxy.internal.local_streams.borrow_mut().insert(stream_token, tracker);
-                    }));
-                    *token2.borrow_mut() = token3;
-                    transportation::borrow_poll(|poll| {
-                        poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
-                            .unwrap()
-                    });
+                        let socket = socket(AddressFamily::Unix, SockType::Stream, SockFlag::empty(), None).map_err(|_| "Failed to create socket")?;
+                        let sockaddr = SockAddr::new_unix(&PathBuf::from(addr.clone())).map_err(|_| "Failed to parse socket address")?;
+                        bind(socket, &sockaddr).map_err(|_| "Failed to bind")?;
+                        listen(socket, 10).map_err(|_| "Failed to listen")?;
+                        debug!("Remote bind successful");
+                        let token = Rc::new(RefCell::new(0));
+                        let token2 = token.clone();
+                        let proxy = self.clone();
+                        let addr2 = addr.clone();
+                        let token3 = transportation::insert_listener(Rc::new(move || {
+                            let addr = addr.clone();
+                            let token = token.clone();
+                            let peer = accept(socket);
+                            debug!("Accepted connection");
+                            if peer.is_err() {
+                                proxy.log_warn(&format!("Failed to accept connection on {}", addr));
+                                transportation::remove_listener(*token.borrow());
+                                return;
+                            }
+                            let peer = peer.unwrap();
+                            let stream_token = proxy.send(BindConnectionAccepted { reference: message_number });
+                            let bt = BufferedTransport::from(peer);
+                            let tracker = super::PortStream {
+                                stream: bt,
+                                token:  stream_token,
+                                oxy:    proxy.clone(),
+                                local:  true,
+                            };
+                            let tracker2 = Rc::new(tracker.clone());
+                            tracker.stream.set_notify(tracker2);
+                            proxy.internal.local_streams.borrow_mut().insert(stream_token, tracker);
+                        }));
+                        *token2.borrow_mut() = token3;
+                        transportation::borrow_poll(|poll| {
+                            poll.register(&EventedFd(&socket), Token(token3), Ready::readable(), PollOpt::level())
+                                .unwrap()
+                        });
 
-                    self.internal.remote_bind_cleaners.borrow_mut().insert(
-                        message_number,
-                        Rc::new(move || {
-                            debug!("Closing remote bind.");
-                            transportation::remove_listener(token3);
-                            close(socket).map_err(|x| warn!("While closing remote bind: {:?}", x)).ok();
-                            unlink(&PathBuf::from(addr2.clone()))
-                                .map_err(|x| warn!("While unlinking remote bind: {:?}", x))
-                                .ok();
-                        }),
-                    );
+                        self.internal.remote_bind_cleaners.borrow_mut().insert(
+                            message_number,
+                            Rc::new(move || {
+                                debug!("Closing remote bind.");
+                                transportation::remove_listener(token3);
+                                close(socket).map_err(|x| warn!("While closing remote bind: {:?}", x)).ok();
+                                unlink(&PathBuf::from(addr2.clone()))
+                                    .map_err(|x| warn!("While unlinking remote bind: {:?}", x))
+                                    .ok();
+                            }),
+                        );
 
-                    return Ok(());
+                        return Ok(());
+                    }
                 }
                 let addr = if !addr.contains(':') { format!("localhost:{}", addr) } else { addr };
                 let bind = ::std::net::TcpListener::bind(&addr).map_err(|_| "bind failed")?;

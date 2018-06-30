@@ -18,7 +18,7 @@ crate fn run() {
         let bt = <BufferedTransport as From<RawFd>>::from(fd);
         Oxy::run(bt);
     }
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     unimplemented!();
 }
 

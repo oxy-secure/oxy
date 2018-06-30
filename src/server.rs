@@ -1,6 +1,7 @@
 use crate::{core::Oxy, reexec::reexec};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
+#[cfg(unix)]
 use nix::{
     errno::Errno::ECHILD,
     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
@@ -113,37 +114,43 @@ impl Server {
         }
 
         let proxy = self.clone();
+        #[cfg(unix)]
         transportation::set_signal_handler(Rc::new(move || proxy.harvest_children()));
     }
 
     fn harvest_children(&self) {
-        loop {
-            let result = waitpid(None, Some(WaitPidFlag::WNOHANG));
-            match &result {
-                Err(Sys(ECHILD)) => {
-                    // No children left to harvest
+        #[cfg(unix)]
+        {
+            loop {
+                let result = waitpid(None, Some(WaitPidFlag::WNOHANG));
+                match &result {
+                    Err(Sys(ECHILD)) => {
+                        // No children left to harvest
+                        return;
+                    }
+                    _ => (),
+                };
+                if result.is_err() {
+                    warn!("Error in waitpid: {:?}", result);
                     return;
                 }
-                _ => (),
-            };
-            if result.is_err() {
-                warn!("Error in waitpid: {:?}", result);
-                return;
-            }
-            let result = result.unwrap();
-            match result {
-                WaitStatus::Exited(pid, status) => {
-                    info!("Child process {} exited with status {}", pid, status);
-                }
-                WaitStatus::StillAlive => {
-                    return;
-                }
-                _ => {
-                    warn!("Surprising waitpid result: {:?}", result);
-                    return;
+                let result = result.unwrap();
+                match result {
+                    WaitStatus::Exited(pid, status) => {
+                        info!("Child process {} exited with status {}", pid, status);
+                    }
+                    WaitStatus::StillAlive => {
+                        return;
+                    }
+                    _ => {
+                        warn!("Surprising waitpid result: {:?}", result);
+                        return;
+                    }
                 }
             }
         }
+        #[cfg(not(unix))]
+        unimplemented!();
     }
 
     fn destroy(&self) {
@@ -392,7 +399,7 @@ fn fork_and_handle(stream: TcpStream) {
         close(fd).unwrap();
         close(fd2).unwrap();
     }
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     {
         // WSADuplicateSocket is an extremely awkward interface...
         unimplemented!();
