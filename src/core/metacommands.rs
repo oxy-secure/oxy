@@ -2,7 +2,10 @@ use clap::{self, App, AppSettings, Arg, SubCommand};
 #[cfg(unix)]
 use crate::tuntap::{TunTap, TunTapType};
 use crate::{
-    core::{Oxy, PortBind, SocksBind, SocksBindNotificationProxy},
+    core::{
+        socks::{SocksBind, SocksBindNotificationProxy},
+        Oxy, PortBind,
+    },
     message::OxyMessage::*,
 };
 #[allow(unused_imports)]
@@ -628,10 +631,10 @@ impl Oxy {
                                 proxy.log_info("Accepted SOCKS connection");
                                 let peer = peer.unwrap();
                                 let bt = BufferedTransport::from(peer);
-                                let sproxy = super::SocksConnectionNotificationProxy {
+                                let sproxy = super::socks::SocksConnectionNotificationProxy {
                                     oxy: proxy.clone(),
                                     bt,
-                                    state: Rc::new(RefCell::new(super::SocksState::Initial)),
+                                    state: Rc::new(RefCell::new(super::socks::SocksState::Initial)),
                                 };
                                 let sproxy = Rc::new(sproxy);
                                 sproxy.bt.set_notify(sproxy.clone());

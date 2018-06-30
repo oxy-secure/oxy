@@ -32,8 +32,6 @@ pub fn run() {
     debug!("Oxy starting");
     arg::process();
     debug!("Args processed");
-    conf::init();
-    debug!("Conf processed");
     match arg::mode().as_str() {
         "client" => client::run(),
         "reexec" => reexec::run(),
@@ -44,6 +42,7 @@ pub fn run() {
         "guide" => guide::print_guide(),
         "copy" => copy::run(),
         "keygen" => keys::keygen(),
+        "configure" => conf::configure(),
         _ => unreachable!(),
     }
 }

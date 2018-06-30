@@ -23,10 +23,6 @@ struct Conf {
     client: Option<toml::Value>,
 }
 
-crate fn init() {
-    ::lazy_static::initialize(&CONF);
-}
-
 fn load_conf() -> Conf {
     trace!("Loading configuration");
     let mut result = Conf::default();
@@ -472,4 +468,8 @@ crate fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Option<
     }
 
     crate::arg::matches().value_of(arg).map(|x| x.to_string())
+}
+
+crate fn configure() {
+    ();
 }

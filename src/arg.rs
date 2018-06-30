@@ -153,6 +153,7 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(&verbose),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
+        SubCommand::with_name("configure").about("Manage configuration files"),
     ];
     let subcommands: Vec<_> = subcommands.into_iter().map(|x| x.setting(AppSettings::UnifiedHelpMessage)).collect();
     App::new("oxy")
