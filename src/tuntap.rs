@@ -1,6 +1,6 @@
 use byteorder::{self, ByteOrder};
 use crate::core::Oxy;
-use libc::ioctl;
+use libc::{c_ulong, ioctl};
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use nix::{
@@ -34,7 +34,7 @@ pub(crate) enum TunTapType {
 const IFF_TUN: u16 = 1;
 const IFF_TAP: u16 = 2;
 const IFF_NO_PI: u16 = 4096;
-const TUNSETIFF: u64 = 1074025674;
+const TUNSETIFF: c_ulong = 1074025674;
 
 impl TunTap {
     crate fn create(mode: TunTapType, name: &str, reference_number: u64, oxy: Oxy) -> TunTap {

@@ -3,6 +3,8 @@ use super::{PortBind, PortStream};
 use crate::pty::Pty;
 #[cfg(unix)]
 use crate::tuntap::{TunTap, TunTapType};
+#[cfg(unix)]
+use libc::off_t;
 use crate::{
     core::Oxy,
     message::OxyMessage::{self, *},
@@ -344,7 +346,7 @@ impl Oxy {
                         .truncate(false)
                         .open(path)
                         .map_err(|_| "Failed to open file")?;
-                    let result = ::nix::unistd::ftruncate(file.as_raw_fd(), len as i64);
+                    let result = ::nix::unistd::ftruncate(file.as_raw_fd(), len as off_t);
                     if result.is_err() {
                         return Err("Truncate failed".to_string());
                     }
