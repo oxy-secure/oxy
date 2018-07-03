@@ -26,10 +26,75 @@ struct Conf {
 fn load_conf() -> Conf {
     trace!("Loading configuration");
     let mut result = Conf::default();
-    result.load_server_conf();
-    result.load_client_conf();
+    match crate::arg::mode().as_str() {
+        "server" | "reexec" | "serve-one" | "reverse-server" => {
+            result.load_server_conf();
+        }
+        "client" | "copy" | "reverse-client" => {
+            result.load_client_conf();
+        }
+        _ => (),
+    }
     trace!("Configuration result: {:?}", result);
     result
+}
+
+fn decrypt(mut data: Vec<u8>, passphrase: &str) -> Option<String> {
+    let nonce = data.drain(..12).collect::<Vec<u8>>();
+    let difficulty = <::byteorder::BE as ::byteorder::ByteOrder>::read_u32(&data.drain(..4).collect::<Vec<u8>>());
+    let mut key = [0u8; 32];
+    ::ring::pbkdf2::derive(&::ring::digest::SHA512, difficulty, b"oxy-config", passphrase.as_bytes(), &mut key);
+    let key = ::ring::aead::OpeningKey::new(&::ring::aead::AES_256_GCM, &key).unwrap();
+    let result = ::ring::aead::open_in_place(&key, &nonce, b"", 0, &mut data);
+    if result.is_err() {
+        return None;
+    }
+    let result = ::std::str::from_utf8(result.unwrap());
+    if result.is_err() {
+        return None;
+    }
+    Some(result.unwrap().to_string())
+}
+
+fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Value, String> {
+    use std::io::Write;
+    let is_encrypted = input_config
+        .as_table()
+        .ok_or("Failed to interpret toml as table")?
+        .contains_key("encrypted");
+    if !is_encrypted {
+        // It's pretty easy to decrypt a config that isn't encrypted.
+        return Ok(input_config);
+    }
+    let table = input_config.as_table().unwrap();
+    let encrypted_config = table.get("encrypted").unwrap();
+    let encrypted_config = ::data_encoding::BASE32_NOPAD
+        .decode(encrypted_config.as_str().ok_or("Encrypted config is not a string?")?.as_bytes())
+        .map_err(|_| "Failed to decode encrypted config value.")?;
+
+    let mut tty = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
+    let mut tty2 = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
+    let _ = write!(tty, "Please enter passphrase for {}: ", file_path);
+    let passphrase = ::termion::input::TermRead::read_passwd(&mut tty, &mut tty2);
+    let _ = write!(tty, "\n");
+    if passphrase.is_err() {
+        Err("Failed to read passphrase")?;
+    }
+    let passphrase = passphrase.unwrap();
+    if passphrase.is_none() {
+        Err("Failed to read passphrase")?;
+    }
+    let passphrase = passphrase.unwrap();
+    let plaintext_config = decrypt(encrypted_config, &passphrase);
+    if plaintext_config.is_none() {
+        Err("Failed to decrypt_passphrase")?;
+    }
+    let plaintext_config = plaintext_config.unwrap();
+    let result_config = toml::Value::from_str(&plaintext_config);
+    if result_config.is_err() {
+        Err(format!("Failed to parse decrypted config. {:?}", result_config))?;
+    }
+    Ok(result_config.unwrap())
 }
 
 fn load_from_home(path: &str) -> Option<toml::Value> {
@@ -64,6 +129,13 @@ fn load_from_home(path: &str) -> Option<toml::Value> {
     let value = toml::Value::from_str(&text);
     if value.is_err() {
         warn!("Error parsing TOML: {:?}", value);
+        return None;
+    }
+    let value = value.unwrap();
+    let value = decrypt_config(value, &path);
+    if value.is_err() {
+        warn!("Error decrypting TOML. {:?}", value);
+        return None;
     }
     debug!("Successfully loaded {:?}", path);
     value.ok()
