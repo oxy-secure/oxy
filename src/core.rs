@@ -232,7 +232,12 @@ impl Oxy {
             crate::exit::exit(1);
         }
         let serialized: Vec<u8> = serialize(message);
-        let framed: Vec<Vec<u8>> = frame(serialized);
+        let compressed: Vec<u8> = if *self.internal.outbound_compression.borrow() {
+            compress(&serialized)
+        } else {
+            serialized
+        };
+        let framed: Vec<Vec<u8>> = frame(compressed);
         for frame in framed {
             let encrypted_frame: Vec<u8> = self.encrypt(frame);
             self.internal.naked_transport.borrow().as_ref().unwrap().put(&encrypted_frame);
@@ -292,9 +297,15 @@ impl Oxy {
                 .borrow_mut()
                 .extend(&plaintext[1..(1 + relevant_bytes)]);
             if relevant_bytes != 255 {
+                let mut message = Vec::new();
+                ::std::mem::swap(&mut message, &mut *self.internal.inbound_cleartext_buffer.borrow_mut());
+                let message = if *self.internal.inbound_compression.borrow() {
+                    decompress(&message)
+                } else {
+                    message
+                };
                 let message_number = self.tick_incoming();
-                let message: Result<OxyMessage, _> = ::serde_cbor::from_slice(&*self.internal.inbound_cleartext_buffer.borrow_mut());
-                self.internal.inbound_cleartext_buffer.borrow_mut().clear();
+                let message: Result<OxyMessage, _> = ::serde_cbor::from_slice(&message);
                 if message.is_err() {
                     self.send(Reject {
                         reference: message_number,
@@ -846,4 +857,18 @@ fn frame(data: Vec<u8>) -> Vec<Vec<u8>> {
         result.push([0u8; 256][..].to_vec());
     }
     result
+}
+
+fn compress(data: &[u8]) -> Vec<u8> {
+    let compressed_data = Vec::with_capacity(data.len());
+    let mut encoder = ::libflate::zlib::Encoder::new(compressed_data).expect("Failed to create outbound compression encoder");
+    ::std::io::Write::write_all(&mut encoder, &data[..]).expect("Failed to compress outbound message");
+    encoder.finish().into_result().expect("Failed to compress outbound message.")
+}
+
+fn decompress(data: &[u8]) -> Vec<u8> {
+    let mut decoder = ::libflate::zlib::Decoder::new(data).expect("Failed to create inbound compression decoder");
+    let mut buf = Vec::new();
+    decoder.read_to_end(&mut buf).expect("Failed to decompress inbound message");
+    buf
 }

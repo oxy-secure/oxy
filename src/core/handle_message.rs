@@ -3,12 +3,12 @@ use super::{PortBind, PortStream};
 use crate::pty::Pty;
 #[cfg(unix)]
 use crate::tuntap::{TunTap, TunTapType};
-#[cfg(unix)]
-use libc::off_t;
 use crate::{
     core::Oxy,
     message::OxyMessage::{self, *},
 };
+#[cfg(unix)]
+use libc::off_t;
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::{
@@ -117,7 +117,6 @@ impl Oxy {
                 }
             }
             CompressionStart { compression_type } => {
-                warn!("Compression is stubbed out in this build!!! It doesn't actually do anything right now!!");
                 if compression_type != 0 {
                     panic!("Unknown compression algorithm");
                 }
