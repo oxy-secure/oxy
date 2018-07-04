@@ -98,17 +98,23 @@ fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Va
     Ok(result_config.unwrap())
 }
 
-fn load_from_home(path: &str) -> Option<toml::Value> {
+fn resolve_path(path: &str) -> String {
     let mut path = path.to_string();
     if path.starts_with("~") {
         let home = ::std::env::home_dir();
         if home.is_none() {
-            return None;
+            error!("Failed to find home directory");
+            ::std::process::exit(1);
         }
         let home = home.unwrap();
         let home = home.to_str().unwrap().to_string();
         path = path.replacen('~', &home, 1);
     }
+    path
+}
+
+fn load_from_home(path: &str) -> Option<toml::Value> {
+    let path = resolve_path(path);
     let file = File::open(&path);
     if file.is_err() {
         debug!("No {} config to load.", path);
@@ -144,20 +150,12 @@ fn load_from_home(path: &str) -> Option<toml::Value> {
 
 impl Conf {
     fn load_client_conf(&mut self) {
-        let path = crate::arg::matches().value_of("client config");
-        if path.is_none() {
-            return;
-        }
-        let path = path.unwrap();
+        let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/client.conf");
         self.client = load_from_home(path);
     }
 
     fn load_server_conf(&mut self) {
-        let path = crate::arg::matches().value_of("server config");
-        if path.is_none() {
-            return;
-        }
-        let path = path.unwrap();
+        let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/server.conf");
         let mut result = load_from_home(path);
 
         let mut name_ticker: u64 = 0;
@@ -176,7 +174,8 @@ impl Conf {
                             } else {
                                 if let Some(name) = client.get("name").unwrap().as_str() {
                                     if name.starts_with("generated-client-name-") {
-                                        warn!("Warning!!! You are using a statically set client name that starts with 'generated-client-name-'. This is not recommended.");
+                                        error!("Config file contains statically set client name that starts with 'generated-client-name-'.");
+                                        ::std::process::exit(1);
                                     }
                                 }
                             }
@@ -597,7 +596,57 @@ crate fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Option<
 crate fn configure() {
     let subcommand = crate::arg::matches().subcommand_name().unwrap().to_string();
     match subcommand.as_str() {
+        "initialize-server" => initialize_server(),
         "encrypt-config" => unimplemented!(),
         _ => unimplemented!(),
+    }
+}
+
+fn initialize_server() {
+    let mut dh = ::snow::CryptoResolver::resolve_dh(&::snow::DefaultResolver, &::snow::params::DHChoice::Curve25519).unwrap();
+    let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
+    ::snow::types::Dh::generate(&mut *dh, &mut *rng);
+
+    let privkey = ::snow::types::Dh::privkey(&*dh);
+    let pubkey = ::snow::types::Dh::pubkey(&*dh);
+    let mut knock = [0u8; 32];
+    ::snow::types::Random::fill_bytes(&mut *rng, &mut knock);
+
+    let privkey = ::data_encoding::BASE32_NOPAD.encode(privkey);
+    let pubkey = ::data_encoding::BASE32_NOPAD.encode(pubkey);
+    let knock = ::data_encoding::BASE32_NOPAD.encode(&knock);
+
+    let privkey = ::toml::value::Value::String(privkey);
+    let pubkey = ::toml::value::Value::String(pubkey);
+    let knock = ::toml::value::Value::String(knock);
+
+    let mut config = ::toml::value::Table::new();
+    config.insert("my_pubkey".to_string(), pubkey);
+    config.insert("knock".to_string(), knock);
+
+    let display_config = ::toml::to_string(&config).unwrap();
+
+    config.insert("privkey".to_string(), privkey);
+
+    let config: String = ::toml::to_string(&config).unwrap();
+
+    if let Some(config_path) = crate::arg::matches().subcommand_matches("initialize-server").unwrap().value_of("config") {
+        let config_path = resolve_path(config_path);
+        match ::std::fs::File::create(&config_path) {
+            Ok(mut file) => {
+                let result = ::std::io::Write::write_all(&mut file, config.as_bytes());
+                match result {
+                    Ok(_) => {
+                        print!("{}", display_config);
+                    }
+                    Err(err) => {
+                        error!("Failed to write config file {:?} {:?}", config_path, err);
+                    }
+                }
+            }
+            Err(err) => {
+                error!("Failed to create config file {:?} {:?}", config_path, err);
+            }
+        }
     }
 }

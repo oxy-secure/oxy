@@ -10,12 +10,36 @@ lazy_static! {
 }
 
 fn configure_subcommand() -> App<'static, 'static> {
+    let config_client = Arg::with_name("config")
+        .long("config")
+        .help("Location of the configuration file to manage.")
+        .default_value("~/.config/client.conf");
+    let config_server = Arg::with_name("config")
+        .long("config")
+        .help("Location of the configuration file to manage.")
+        .default_value("~/.config/server.conf");
     SubCommand::with_name("configure")
         .about("Manage configuration")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommand(SubCommand::with_name("encrypt-config").about("Protect client keys with a passphrase"))
-        .subcommand(SubCommand::with_name("learn-client").about("Register a new client that is allowed to connect to this server"))
-        .subcommand(SubCommand::with_name("learn-server").about("Register a new server to connect to."))
+        .subcommand(
+            SubCommand::with_name("learn-client")
+                .about("Register a new client that is allowed to connect to this server")
+                .arg(Arg::with_name("name").help("Name for the client"))
+                .arg(Arg::with_name("psk").help("PSK for the client"))
+                .arg(Arg::with_name("pubkey").help("Public key for the client").required(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("learn-server")
+                .about("Register a new server to connect to.")
+                .arg(Arg::with_name("pubkey").help("Public key for the server").required(true))
+                .arg(&config_client),
+        )
+        .subcommand(
+            SubCommand::with_name("initialize-server")
+                .about("Create an initial server configuration file. (Generates a knock key and long-term server key)")
+                .arg(&config_server),
+        )
 }
 
 crate fn create_app() -> App<'static, 'static> {
@@ -73,14 +97,9 @@ crate fn create_app() -> App<'static, 'static> {
         .short("Y")
         .long("trusted-x-forwarding")
         .help("Enable trusted X forwarding");
-    let server_config = Arg::with_name("server config")
-        .long("server-config")
-        .help("Path to server.conf")
-        .default_value("~/.config/oxy/server.conf");
-    let client_config = Arg::with_name("client config")
-        .long("client-config")
-        .help("Path to client.conf")
-        .default_value("~/.config/oxy/client.conf");
+    let config = Arg::with_name("config")
+        .long("config")
+        .help("Path to configuration file (defaults to ~/.config/oxy/server.conf for servers and ~/.config/oxy/client.conf for clients)");
     let forced_command = Arg::with_name("forced command")
         .long("forced-command")
         .help("Restrict command execution to the specified command")
@@ -112,8 +131,7 @@ crate fn create_app() -> App<'static, 'static> {
         knock_port.clone(),
         xforward,
         trusted_xforward,
-        server_config.clone(),
-        client_config.clone(),
+        config.clone(),
         via,
         compression.clone(),
         verbose.clone(),
@@ -122,8 +140,7 @@ crate fn create_app() -> App<'static, 'static> {
         command,
     ];
     let server_args = vec![
-        server_config.clone(),
-        client_config.clone(),
+        config.clone(),
         forced_command,
         tcp_port.clone(),
         knock_port.clone(),
@@ -159,8 +176,7 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
         SubCommand::with_name("copy")
             .about("Copy files from any number of sources to one destination.")
-            .arg(client_config)
-            .arg(server_config)
+            .arg(config)
             .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
             .arg(&verbose),

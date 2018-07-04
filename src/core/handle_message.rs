@@ -50,8 +50,8 @@ impl Oxy {
         return path;
         #[cfg(unix)]
         {
-            if !path.is_absolute() && self.internal.pty.borrow_mut().is_some() {
-                let mut base_path: PathBuf = self.internal.pty.borrow_mut().as_mut().unwrap().get_cwd().into();
+            if !path.is_absolute() && !self.internal.ptys.borrow_mut().is_empty() {
+                let mut base_path: PathBuf = self.internal.ptys.borrow_mut().values().next().unwrap().get_cwd().into();
                 base_path.push(path);
                 path = base_path;
             }
@@ -227,25 +227,34 @@ impl Oxy {
             #[cfg(unix)]
             PtyRequest { command } => {
                 self.server_only();
+                if !self.internal.ptys.borrow_mut().is_empty() {
+                    Err("PTY already exists")?;
+                }
                 let pty = Pty::forkpty(command, self.peer().as_ref().map(|x| x.as_str())).map_err(|_| "forkpty failed")?;
                 let proxy = self.clone();
-                pty.underlying.set_notify(Rc::new(move || proxy.notify_pty()));
-                *self.internal.pty.borrow_mut() = Some(pty);
+                pty.underlying.set_notify(Rc::new(move || proxy.notify_pty(message_number)));
+                self.internal.ptys.borrow_mut().insert(message_number, pty);
                 trace!("Successfully allocated PTY");
                 self.send(Success { reference: message_number });
             }
             #[cfg(unix)]
-            PtySizeAdvertisement { w, h } => {
+            PtySizeAdvertisement { reference, w, h } => {
                 self.server_only();
-                self.internal.pty.borrow_mut().as_mut().ok_or("No PTY exists")?.set_size(w, h);
+                self.internal.ptys.borrow_mut().get(&reference).ok_or("No PTY exists")?.set_size(w, h);
             }
             #[cfg(unix)]
-            PtyInput { data } => {
+            PtyInput { reference, data } => {
                 self.server_only();
-                self.internal.pty.borrow_mut().as_mut().ok_or("No PTY exists")?.underlying.put(&data[..]);
+                self.internal
+                    .ptys
+                    .borrow()
+                    .get(&reference)
+                    .ok_or("No such PTY")?
+                    .underlying
+                    .put(&data[..]);
             }
             #[cfg(unix)]
-            PtyOutput { data } => {
+            PtyOutput { reference: _, data } => {
                 self.client_only();
                 if self.internal.ui.borrow().is_some() {
                     self.internal.ui.borrow_mut().as_mut().unwrap().pty_data(&data);
@@ -623,7 +632,7 @@ impl Oxy {
                     answers: results,
                 });
             }
-            PtyExited { status } => {
+            PtyExited { reference: _, status } => {
                 self.client_only();
                 debug!("Remote PTY process exited with status {}", status);
                 self.exit(0);

@@ -203,8 +203,9 @@ impl Oxy {
                                     return false;
                                 }
                                 if proxy.internal.ui.borrow().is_some() {
+                                    *proxy.internal.active_pty.borrow_mut() = Some(id);
                                     let (w, h) = proxy.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
-                                    proxy.send(PtySizeAdvertisement { w, h });
+                                    proxy.send(PtySizeAdvertisement { reference: id, w, h });
                                     return true;
                                 }
                                 return true;
@@ -702,11 +703,25 @@ impl Oxy {
                     }
                     "f10" => {
                         let f10 = [27, 91, 50, 49, 126];
-                        self.send(PtyInput { data: f10.to_vec() });
+                        if let Some(&reference) = self.internal.active_pty.borrow().as_ref() {
+                            self.send(PtyInput {
+                                reference,
+                                data: f10.to_vec(),
+                            });
+                        } else {
+                            self.log_warn("No active PTY");
+                        }
                     }
                     "f12" => {
                         let f12 = [27, 91, 50, 52, 126];
-                        self.send(PtyInput { data: f12.to_vec() });
+                        if let Some(&reference) = self.internal.active_pty.borrow().as_ref() {
+                            self.send(PtyInput {
+                                reference,
+                                data: f12.to_vec(),
+                            });
+                        } else {
+                            self.log_warn("No active PTY");
+                        }
                     }
                     "hash" => {
                         self.send(FileHashRequest {

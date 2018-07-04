@@ -81,8 +81,9 @@ crate struct OxyInternal {
     outbound_compression: RefCell<bool>,
     inbound_compression: RefCell<bool>,
     inbound_cleartext_buffer: RefCell<Vec<u8>>,
+    active_pty: RefCell<Option<u64>>,
     #[cfg(unix)]
-    pty: RefCell<Option<Pty>>,
+    ptys: RefCell<HashMap<u64, Pty>>,
     #[cfg(unix)]
     tuntaps: RefCell<HashMap<u64, TunTap>>,
 }
@@ -190,9 +191,9 @@ impl Oxy {
                     x.cooked()
                 };
                 crate::ui::cleanup();
-                if proxy.internal.pty.borrow().is_some() {
+                if proxy.internal.ptys.borrow().values().next().is_some() {
                     use nix::sys::signal::{kill, Signal::*};
-                    kill(proxy.internal.pty.borrow().as_ref().unwrap().child_pid, SIGTERM).ok();
+                    kill(proxy.internal.ptys.borrow().values().next().unwrap().child_pid, SIGTERM).ok();
                 }
                 if proxy.is_client() && !*proxy.internal.is_daemon.borrow() {
                     eprint!("\r");
@@ -362,18 +363,24 @@ impl Oxy {
                     self.handle_metacommand(parts);
                 }
                 RawInput { input } => {
-                    self.send(PtyInput { data: input });
+                    if let Some(&reference) = self.internal.active_pty.borrow().as_ref() {
+                        self.send(PtyInput { reference, data: input });
+                    }
                 }
             }
         }
     }
 
     #[cfg(unix)]
-    fn notify_pty(&self) {
-        let data = self.internal.pty.borrow_mut().as_mut().unwrap().underlying.take();
-        debug!("PTY Data: {:?}", data);
-        if !data.is_empty() {
-            self.send(PtyOutput { data });
+    fn notify_pty(&self, reference: u64) {
+        if let Some(pty) = self.internal.ptys.borrow().get(&reference) {
+            let data = pty.underlying.take();
+            debug!("PTY Data: {:?}", data);
+            if !data.is_empty() {
+                self.send(PtyOutput { reference, data });
+            }
+        } else {
+            warn!("Invalid PTY Notification recieved");
         }
     }
 
@@ -535,24 +542,29 @@ impl Oxy {
     fn notify_signal(&self) {
         match transportation::get_signal_name().as_str() {
             "SIGWINCH" => {
-                if self.is_client() && self.internal.ui.borrow().is_some() {
-                    let (w, h) = self.internal.ui.borrow_mut().as_mut().unwrap().pty_size();
-                    self.send(PtySizeAdvertisement { w, h });
+                if self.is_client() {
+                    if let Some(ui) = self.internal.ui.borrow().as_ref() {
+                        if let Some(&reference) = self.internal.active_pty.borrow().as_ref() {
+                            let (w, h) = ui.pty_size();
+                            self.send(PtySizeAdvertisement { reference, w, h });
+                        }
+                    }
                 }
             }
             "SIGCHLD" => {
                 info!("Received SIGCHLD");
-                if self.internal.pty.borrow().is_some() {
-                    let ptypid = self.internal.pty.borrow().as_ref().unwrap().child_pid;
-                    let flags = ::nix::sys::wait::WaitPidFlag::WNOHANG;
-                    let waitresult = ::nix::sys::wait::waitpid(ptypid, Some(flags));
-                    use nix::sys::wait::WaitStatus::Exited;
-                    match waitresult {
-                        Ok(Exited(_pid, status)) => {
-                            self.send(PtyExited { status });
-                        }
-                        _ => (),
-                    };
+                if !self.internal.ptys.borrow().is_empty() {
+                    for (reference, ptypid) in self.internal.ptys.borrow().iter().map(|(&k, v)| (k, v.child_pid)) {
+                        let flags = ::nix::sys::wait::WaitPidFlag::WNOHANG;
+                        let waitresult = ::nix::sys::wait::waitpid(ptypid, Some(flags));
+                        use nix::sys::wait::WaitStatus::Exited;
+                        match waitresult {
+                            Ok(Exited(_pid, status)) => {
+                                self.send(PtyExited { reference, status });
+                            }
+                            _ => (),
+                        };
+                    }
                 }
                 let mut to_remove = Vec::new();
                 for (k, pipe_child) in self.internal.piped_children.borrow_mut().iter_mut() {
