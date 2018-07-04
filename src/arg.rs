@@ -9,6 +9,15 @@ lazy_static! {
     pub(crate) static ref MATCHES: ArgMatches<'static> = create_matches();
 }
 
+fn configure_subcommand() -> App<'static, 'static> {
+    SubCommand::with_name("configure")
+        .about("Manage configuration")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(SubCommand::with_name("encrypt-config").about("Protect client keys with a passphrase"))
+        .subcommand(SubCommand::with_name("learn-client").about("Register a new client that is allowed to connect to this server"))
+        .subcommand(SubCommand::with_name("learn-server").about("Register a new server to connect to."))
+}
+
 crate fn create_app() -> App<'static, 'static> {
     let metacommand = Arg::with_name("metacommand")
         .short("m")
@@ -153,7 +162,7 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(&verbose),
         SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
-        SubCommand::with_name("configure").about("Manage configuration files"),
+        configure_subcommand(),
     ];
     let subcommands: Vec<_> = subcommands.into_iter().map(|x| x.setting(AppSettings::UnifiedHelpMessage)).collect();
     App::new("oxy")
@@ -166,12 +175,16 @@ crate fn create_app() -> App<'static, 'static> {
 
 fn create_matches() -> ArgMatches<'static> {
     trace!("Parsing arguments");
-    let basic = create_app().get_matches_from_safe(::std::env::args());
-    if basic.is_err() && basic.as_ref().unwrap_err().kind == ::clap::ErrorKind::HelpDisplayed {
+    if ::std::env::args().nth(1).as_ref().map(|x| x.as_str()) == Some("configure") {
         return create_app().get_matches();
     }
+    let basic = create_app().get_matches_from_safe(::std::env::args());
     if let Ok(matches) = basic {
         return matches;
+    }
+    let error_kind = basic.as_ref().unwrap_err().kind;
+    if error_kind == ::clap::ErrorKind::HelpDisplayed {
+        return create_app().get_matches();
     }
     trace!("Trying implicit 'client'");
     let mut args2: Vec<String> = ::std::env::args().collect();

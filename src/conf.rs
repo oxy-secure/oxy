@@ -40,10 +40,11 @@ fn load_conf() -> Conf {
 }
 
 fn decrypt(mut data: Vec<u8>, passphrase: &str) -> Option<String> {
+    let salt = data.drain(..32).collect::<Vec<u8>>();
     let nonce = data.drain(..12).collect::<Vec<u8>>();
     let difficulty = <::byteorder::BE as ::byteorder::ByteOrder>::read_u32(&data.drain(..4).collect::<Vec<u8>>());
     let mut key = [0u8; 32];
-    ::ring::pbkdf2::derive(&::ring::digest::SHA512, difficulty, b"oxy-config", passphrase.as_bytes(), &mut key);
+    ::ring::pbkdf2::derive(&::ring::digest::SHA512, difficulty, &salt, passphrase.as_bytes(), &mut key);
     let key = ::ring::aead::OpeningKey::new(&::ring::aead::AES_256_GCM, &key).unwrap();
     let result = ::ring::aead::open_in_place(&key, &nonce, b"", 0, &mut data);
     if result.is_err() {
@@ -543,5 +544,9 @@ crate fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Option<
 }
 
 crate fn configure() {
-    ();
+    let subcommand = crate::arg::matches().subcommand_name().unwrap().to_string();
+    match subcommand.as_str() {
+        "encrypt-config" => unimplemented!(),
+        _ => unimplemented!(),
+    }
 }

@@ -1,35 +1,17 @@
-Oxy can operate in two modes: "quickstart" mode, which uses no configuration, and "full" mode which requires additional setup.
-
-To use quickstart mode, run this command on the server side:
-
-oxy server
-
-
-This command will output a "--identity" value. This serves as the authentication information clients can use to connect to the server. This also serves as peer verification information, preventing man-in-the-middle attacks.
-
-On the client side, run the following command, substituting appropriate values:
-
-oxy client my.server.com --identity="the identity provided in the server output"
-
-
-After you are connected, you can press F10 to get to an interactive metacommand prompt from the client. This prompt allows you to manage portforwards, VPN tunnels, file transfers, and more. If your terminal emulator is eating F10, you can also use <enter>~C (as with OpenSSH) to access this prompt. Type "help" to see more information about potential commands.
-
-Press F12 to exit out of the client.
-
 Oxy operates as a hidden service, and connection initiation occurs over two phases: a UDP "knock", followed by a TCP connection that will contain all subsequent connection data. The TCP connection defaults to port 2600; however, the UDP "knock" uses a port number between 1025 and 65535, derived from the server's "identity" value. By not using a standardized port, detection of oxy services (and thereby deployment of exploits targeting the oxy service) is made more difficult.
 
 A knock consists of a single inbound UDP packet containing a hash based on the "knock" portion of the identity information and the current time. After a successful knock packet is recieved, the server sends no UDP response, but instead establishes a temporary TCP bind that will process connections originating from the same address as the knock.
 
 Because knock packets use a timestamp to limit knock-reuse attacks, servers and clients must have synchronized clocks. Clock skew greater than 60 seconds is likely to cause the knock process to fail, resulting in a "connection refused" error when establishing the TCP connection.
 
-To use "full" mode, create a server configuration file on the server. By default, oxy checks for config files at $HOME/.config/oxy/server.conf and $HOME/.config/oxy/client.conf. If desired, these locations can be overridden using command line arguments.
+To use oxy, create a server configuration file on the server. By default, oxy checks for config files at $HOME/.config/oxy/server.conf and $HOME/.config/oxy/client.conf. If desired, these locations can be overridden using command line arguments.
 
 A sample server config is below:
 --------------------------------
 privkey = "GBJQEAIBGACQMAZLMVYAIIQEEA6VNDALVMYY46LAMUXO2C4K2JDFKJFZB5FNVGPCGGBUELFCVW7WVIJDAMQQBJVNDXQRHEC4W5CSBVALHXE4KZFZZIAE2KJC6Y5STBK55IFYO5TD"
 my_pubkey = "U2WR3YITSBOLORJA2QFT3SOFMS44UACNFERPMOZJQVO6UC4HOZRQ" # not required
-knock = "MEPBVZ4332V23CJOOFTA"
-psk = "6E6WGDJDDN5AU7JEQGZA"
+knock = "K424VTGMXGMJMNXCC6I32L7PHYBQP5S5VASX77276QOMEI2FXQHA"
+psk = "ARMQCYVSWSYE64REO5CFQESWHNINQ3ZSIKG4AYCMOPDEJSGV2QSQ"
 
 [[clients]]
 name = "jmage"
@@ -59,20 +41,18 @@ port = "2600" # This is the TCP port used for the connection after the knock pro
 pubkey = "U2WR3YITSBOLORJA2QFT3SOFMS44UACNFERPMOZJQVO6UC4HOZRQ" # This is the server's public key. Kinda like a known_hosts entry, except mandatory.
 privkey = "GBJQEAIBGACQMAZLMVYAIIQEECVJ562PXCBMQXIEBCKDUZGIDPXJRHN47BXANCJB64XH3NEHKOHRJIJDAMQQABJ4YZWBBGYQ6CCPV5B3RGRCHKQ6QSOKUCUEVJCS3YHKOP3O2DOQ" # This is the client's private key - it does not correspond to the server's public key
 my_pubkey = "AU6MM3AQTMIPBBH26Q5YTIRDVIPIJHFKBKCKURJN4DVHH5XNBXIA" # not required
-psk = "6E6WGDJDDN5AU7JEQGZA" # This is the same value as the the PSK on the server. It's just pure entropy, base32'd. You can generate a value with `oxy keygen`
-knock = "MEPBVZ4332V23CJOOFTA" # This is the same value as the knock value on the server. It's just pure entropy, base32'd. You can generate a random value with `oxy keygen`
-
-[[servers]]
-name = "kiwi"
-host = "192.168.111.1"
-port = "2600"
-identity = "A2ALFEOWPNCR3HI4GITUSU6RDHUXMOFMOXC66IJKYDTBH4DDXO445PZQEU"
+psk = "ARMQCYVSWSYE64REO5CFQESWHNINQ3ZSIKG4AYCMOPDEJSGV2QSQ" # This is the same value as the the PSK on the server. It's just pure entropy, base32'd. You can generate a value with `oxy keygen`
+knock = "K424VTGMXGMJMNXCC6I32L7PHYBQP5S5VASX77276QOMEI2FXQHA" # This is the same value as the knock value on the server. It's just pure entropy, base32'd. You can generate a random value with `oxy keygen`
 
 [[servers]]
 name = "qzx"
 host = "localhost"
 privkey = "GBJQEAIBGACQMAZLMVYAIIQEEAZ2CC6JARMCKVXAK6XGTLKHDQ34KFF2HXVFBYGOID7OQIDUJGI3BIJDAMQQAVH3UP755MDXDSM34K5UCUZRSXG4FDRZNYR5UKWIJI5DHWD2H7HI"
 pubkey = "U2WR3YITSBOLORJA2QFT3SOFMS44UACNFERPMOZJQVO6UC4HOZRQ"
-psk = "6E6WGDJDDN5AU7JEQGZA"
-knock = "MEPBVZ4332V23CJOOFTA"
+knock = "PX66B5FID5FBWQQ2BZJTWICFPKUB7NQT2KCK45OTDCH345IX4DRA"
+psk = "55CBSQP7WS6YUKFWVWQKUD2AWATDCVXTSMGQTXD4KDFVE24GP7CQ"
 ---------------------------------
+
+After you are connected, you can press F10 to get to an interactive metacommand prompt from the client. This prompt allows you to manage portforwards, VPN tunnels, file transfers, and more. If your terminal emulator is eating F10, you can also use <enter>~C (as with OpenSSH) to access this prompt. Type "help" to see more information about potential commands.
+
+Press F12 to exit out of the client.
