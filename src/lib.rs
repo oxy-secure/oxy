@@ -1,4 +1,5 @@
 #![feature(rust_2018_preview)]
+#![feature(try_from)]
 
 mod arg;
 mod client;

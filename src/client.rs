@@ -9,7 +9,7 @@ use transportation;
 
 crate fn knock(peer: &str) {
     let destinations = crate::conf::locate_destination(peer);
-    let port = keys::knock_port(Some(peer));
+    let port = crate::conf::knock_port_for_dest(peer);
     if destinations.is_empty() {
         error!("Failed to resolve {:?}", peer);
         ::std::process::exit(1);

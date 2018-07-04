@@ -53,7 +53,7 @@ After you are connected, you can press F10 to get to an interactive metacommand 
 
 Press F12 to exit out of the client.
 
-Oxy operates as a hidden service, and connection initiation occurs over two phases: a UDP "knock", followed by a TCP connection that will contain all subsequent connection data. The TCP connection defaults to port 2600; however, the UDP "knock" uses a port number between 1025 and 65535, derived from the server's configuration. By not using a standardized port, detection of oxy services (and thereby deployment of exploits targeting the oxy service) is made more difficult.
+Oxy operates as a hidden service, and connection initiation occurs over two phases: a UDP "knock", followed by a TCP connection that will contain all subsequent connection data. Both the UDP "knock" and TCP connection use a port number between 1025 and 65535, derived from the knock key. By not using a standardized port, detection of oxy services (and thereby deployment of exploits targeting the oxy service) is made more difficult.
 
 A knock consists of a single inbound UDP packet containing a hash based on the "knock" portion of the identity information and the current time. After a successful knock packet is recieved, the server sends no UDP response, but instead establishes a temporary TCP bind that will process connections originating from the same address as the knock.
 

@@ -59,7 +59,7 @@ impl Server {
 
     fn init(&self) {
         crate::reexec::safety_check();
-        let knock_port = crate::keys::knock_port(None);
+        let knock_port = crate::conf::server_knock_port();
         info!("Listening for knocks on port UDP {}", knock_port);
 
         {
@@ -231,7 +231,7 @@ impl Server {
     }
 
     fn bind_tcp4(&self) {
-        let port = crate::arg::matches().value_of("port").unwrap();
+        let port = crate::conf::server_tcp_port();
         let bind_addr = format!("0.0.0.0:{}", port).parse().unwrap();
         if let Ok(listener) = TcpListener::bind(&bind_addr) {
             let proxy = self.clone();
@@ -254,7 +254,7 @@ impl Server {
     }
 
     fn bind_tcp6(&self) {
-        let port = crate::arg::matches().value_of("port").unwrap();
+        let port = crate::conf::server_tcp_port();
         let bind_addr = format!("[::]:{}", port).parse().unwrap();
         match TcpListener::bind(&bind_addr) {
             Ok(listener) => {

@@ -49,12 +49,14 @@ crate fn create_app() -> App<'static, 'static> {
         .number_of_values(1)
         .takes_value(true)
         .display_order(104);
-    let port = Arg::with_name("port")
-        .short("p")
-        .long("port")
-        .help("The port used for TCP")
-        .takes_value(true)
-        .default_value("2600");
+    let knock_port = Arg::with_name("knock port")
+        .long("knock-port")
+        .help("Override port used for UDP knock")
+        .takes_value(true);
+    let tcp_port = Arg::with_name("tcp port")
+        .long("tcp-port")
+        .help("Override port used for TCP")
+        .takes_value(true);
     let via = Arg::with_name("via")
         .long("via")
         .takes_value(true)
@@ -106,7 +108,8 @@ crate fn create_app() -> App<'static, 'static> {
         l_portfwd,
         r_portfwd,
         d_portfwd,
-        port.clone(),
+        tcp_port.clone(),
+        knock_port.clone(),
         xforward,
         trusted_xforward,
         server_config.clone(),
@@ -122,7 +125,8 @@ crate fn create_app() -> App<'static, 'static> {
         server_config.clone(),
         client_config.clone(),
         forced_command,
-        port.clone(),
+        tcp_port.clone(),
+        knock_port.clone(),
         verbose.clone(),
         no_tmux.clone(),
         multiplexer.clone(),

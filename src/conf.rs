@@ -318,20 +318,6 @@ crate fn get_setuser(peer: &str) -> Option<String> {
     Some(client(peer)?.get("setuser")?.as_str()?.to_string())
 }
 
-fn host_part<'a>(dest: &'a str) -> &'a str {
-    if dest.starts_with('[') {
-        return dest.splitn(2, '[').nth(1).unwrap().splitn(2, ']').next().unwrap();
-    }
-    dest.splitn(2, ':').next().unwrap()
-}
-
-fn port_part(dest: &str) -> Option<u16> {
-    if !dest.contains(':') {
-        return None;
-    }
-    dest.splitn(2, ':').nth(1).unwrap().parse().ok()
-}
-
 crate fn clients() -> BTreeMap<String, BTreeMap<String, toml::Value>> {
     match &CONF.server {
         Some(Table(table)) => {
@@ -427,75 +413,140 @@ crate fn client_names() -> Vec<String> {
     clients().keys().map(|x| x.to_string()).collect()
 }
 
-crate fn host_for_dest(dest: &str) -> String {
-    let table = server(dest);
-    if table.is_none() {
-        return host_part(dest).to_string();
+crate fn knock_port_for_dest(dest: &str) -> u16 {
+    if let Some(port) = crate::arg::matches().value_of("knock port") {
+        if let Ok(port) = port.parse() {
+            return port;
+        } else {
+            error!("Failed to parse provided knock port.");
+            ::std::process::exit(1);
+        }
     }
-    let table = table.unwrap();
-    let entry = table.get("host");
-    if entry.is_none() {
-        return host_part(dest).to_string();
-    }
-    let entry = entry.unwrap();
-    if !entry.is_str() {
-        warn!("Host value in config is not a string?");
-        return host_part(dest).to_string();
-    }
-    entry.as_str().unwrap().to_string()
-}
 
-fn conf_port_for_dest(dest: &str) -> Option<u16> {
     if let Some(table) = server(dest) {
-        let port = table.get("port");
-        if port.is_none() {
-            return None;
-        }
-        let port = port.unwrap();
-        if port.is_integer() {
-            return Some(port.as_integer().unwrap() as u16);
-        }
-        if port.is_str() {
-            let port = port.as_str().unwrap().parse();
-            if port.is_err() {
-                warn!("Invalid port value in config");
-                return None;
+        if let Some(knock_port) = table.get("knock-port") {
+            if let Some(knock_port) = knock_port.as_integer() {
+                if let Ok(knock_port) = ::std::convert::TryFrom::try_from(knock_port) {
+                    return knock_port;
+                } else {
+                    warn!("Invalid knock port in configuration");
+                }
             }
-            return Some(port.unwrap());
         }
-        warn!("Invalid port value in config.");
-        return None;
     }
-    None
+
+    crate::keys::knock_port(Some(dest))
 }
 
-crate fn port_for_dest(dest: &str) -> u16 {
-    let port = conf_port_for_dest(dest);
-    if port.is_some() {
-        return port.unwrap();
+crate fn tcp_port_for_dest(dest: &str) -> u16 {
+    if let Some(port) = crate::arg::matches().value_of("tcp port") {
+        if let Ok(port) = port.parse() {
+            return port;
+        } else {
+            error!("Failed to parse provided TCP port");
+            ::std::process::exit(1);
+        }
     }
-    let port = port_part(dest);
-    if port.is_some() {
-        return port.unwrap();
+
+    if let Some(table) = server(dest) {
+        if let Some(tcp_port) = table.get("tcp-port") {
+            if let Some(tcp_port) = tcp_port.as_integer() {
+                if let Ok(tcp_port) = ::std::convert::TryFrom::try_from(tcp_port) {
+                    return tcp_port;
+                } else {
+                    warn!("Invalid tcp port in configuration");
+                }
+            }
+        }
     }
-    return 2600;
+
+    knock_port_for_dest(dest)
+}
+
+crate fn server_knock_port() -> u16 {
+    if let Some(port) = crate::arg::matches().value_of("knock port") {
+        if let Ok(port) = port.parse() {
+            return port;
+        } else {
+            error!("Failed to parse provided knock port");
+            ::std::process::exit(1);
+        }
+    }
+
+    if let Some(table) = &CONF.server {
+        if let Some(table) = table.as_table() {
+            if let Some(knock_port) = table.get("knock-port") {
+                if let Some(knock_port) = knock_port.as_integer() {
+                    if let Ok(knock_port) = ::std::convert::TryFrom::try_from(knock_port) {
+                        return knock_port;
+                    } else {
+                        warn!("Invalid knock port in configuration");
+                    }
+                } else {
+                    warn!("Invalid knock port in configuration");
+                }
+            }
+        }
+    }
+
+    crate::keys::knock_port(None)
+}
+
+crate fn server_tcp_port() -> u16 {
+    if let Some(port) = crate::arg::matches().value_of("tcp port") {
+        if let Ok(port) = port.parse() {
+            return port;
+        } else {
+            error!("Failed to parse provided TCP port");
+            ::std::process::exit(1);
+        }
+    }
+
+    if let Some(table) = &CONF.server {
+        if let Some(table) = table.as_table() {
+            if let Some(tcp_port) = table.get("tcp-port") {
+                if let Some(tcp_port) = tcp_port.as_integer() {
+                    if let Ok(tcp_port) = ::std::convert::TryFrom::try_from(tcp_port) {
+                        return tcp_port;
+                    } else {
+                        warn!("Invalid TCP port in configuration");
+                    }
+                } else {
+                    warn!("Invalid TCP port in configuration");
+                }
+            }
+        }
+    }
+
+    server_knock_port()
+}
+
+crate fn host_for_dest(dest: &str) -> String {
+    if let Some(table) = server(dest) {
+        if let Some(host) = table.get("host") {
+            if let Some(host) = host.as_str() {
+                return host.to_string();
+            }
+        }
+    }
+
+    dest.to_string()
 }
 
 crate fn canonicalize_destination(dest: &str) -> String {
     let table = server(dest);
     if table.is_none() {
-        let port = port_part(dest);
-        let host = host_part(dest);
-        return format!("{}:{}", host, port.unwrap_or(2600));
+        error!("Unknown destination {:?}", dest);
+        ::std::process::exit(1);
     }
     let host = host_for_dest(dest);
-    let port = port_for_dest(dest);
+    let port = tcp_port_for_dest(dest);
     format!("{}:{}", host, port)
 }
 
 crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
     let host = host_for_dest(dest);
-    let port = port_for_dest(dest);
+    let port = tcp_port_for_dest(dest);
     let result = (host.as_str(), port).to_socket_addrs();
     if result.is_err() {
         return Vec::new();
