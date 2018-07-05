@@ -107,6 +107,10 @@ impl Oxy {
                 ::std::process::exit(1);
             }
             let psk = psk.unwrap();
+            if psk.len() != 32 {
+                error!("Invalid PSK");
+                ::std::process::exit(1);
+            }
 
             let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk1_25519_AESGCM_SHA512".parse().unwrap())
                 .local_private_key(&privkey)

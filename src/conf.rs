@@ -142,7 +142,7 @@ fn resolve_path(path: &str) -> String {
     path
 }
 
-fn load_from_home(path: &str) -> Option<toml::Value> {
+fn load_file(path: &str) -> Option<toml::Value> {
     let path = resolve_path(path);
     let file = File::open(&path);
     if file.is_err() {
@@ -180,12 +180,12 @@ fn load_from_home(path: &str) -> Option<toml::Value> {
 impl Conf {
     fn load_client_conf(&mut self) {
         let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/client.conf");
-        self.client = load_from_home(path);
+        self.client = load_file(path);
     }
 
     fn load_server_conf(&mut self) {
         let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/server.conf");
-        let mut result = load_from_home(path);
+        let mut result = load_file(path);
 
         let mut name_ticker: u64 = 0;
 
@@ -626,12 +626,42 @@ crate fn configure() {
     let subcommand = crate::arg::matches().subcommand_name().unwrap().to_string();
     match subcommand.as_str() {
         "initialize-server" => initialize_server(),
-        "encrypt-config" => encrypt_config(),
+        "encrypt-config" => subcommand_encrypt_config(),
+        "decrypt-config" => subcommand_decrypt_config(),
         _ => unimplemented!(),
     }
 }
 
-fn encrypt_config() {
+fn subcommand_decrypt_config() {
+    let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config");
+    if config_path.is_none() {
+        error!("No config path specified");
+        ::std::process::exit(1);
+    }
+    let config_path = config_path.unwrap();
+    let config_path = resolve_path(config_path);
+
+    let config = load_file(&config_path);
+    if config.is_none() {
+        error!("Failed to load config.");
+        ::std::process::exit(1);
+    }
+    let config = ::toml::to_string(&config.unwrap()).unwrap();
+    let file = ::std::fs::File::create(&config_path);
+    if file.is_err() {
+        error!("{:?}", file);
+        ::std::process::exit(1);
+    }
+    let mut file = file.unwrap();
+    let result = ::std::io::Write::write_all(&mut file, config.as_bytes());
+    if result.is_err() {
+        error!("{:?}", result);
+        ::std::process::exit(1);
+    }
+    info!("Config file decrypted successfully");
+}
+
+fn subcommand_encrypt_config() {
     let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config");
     if config_path.is_none() {
         error!("No config path specified");

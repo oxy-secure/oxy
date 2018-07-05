@@ -27,6 +27,11 @@ fn configure_subcommand() -> App<'static, 'static> {
                 .arg(&config_client),
         )
         .subcommand(
+            SubCommand::with_name("decrypt-config")
+                .about("Decrypt an encrypted config file")
+                .arg(&config_client),
+        )
+        .subcommand(
             SubCommand::with_name("learn-client")
                 .about("Register a new client that is allowed to connect to this server")
                 .arg(Arg::with_name("name").help("Name for the client"))
@@ -36,13 +41,19 @@ fn configure_subcommand() -> App<'static, 'static> {
         .subcommand(
             SubCommand::with_name("learn-server")
                 .about("Register a new server to connect to.")
+                .arg(Arg::with_name("name").help("Name for the server").required(true))
+                .arg(Arg::with_name("tcp-port").long("tcp-port").help("TCP port"))
+                .arg(Arg::with_name("knock-port").long("knock-port").help("knock port"))
+                .arg(Arg::with_name("knock").long("knock").help("knock key").required(true))
                 .arg(Arg::with_name("pubkey").help("Public key for the server").required(true))
                 .arg(&config_client),
         )
         .subcommand(
             SubCommand::with_name("initialize-server")
                 .about("Create an initial server configuration file. (Generates a knock key and long-term server key)")
-                .arg(&config_server),
+                .arg(&config_server)
+                .arg(Arg::with_name("tcp-port").takes_value(true))
+                .arg(Arg::with_name("knock-port").takes_value(true)),
         )
 }
 
