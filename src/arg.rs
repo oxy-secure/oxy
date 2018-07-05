@@ -13,15 +13,19 @@ fn configure_subcommand() -> App<'static, 'static> {
     let config_client = Arg::with_name("config")
         .long("config")
         .help("Location of the configuration file to manage.")
-        .default_value("~/.config/client.conf");
+        .default_value("~/.config/oxy/client.conf");
     let config_server = Arg::with_name("config")
         .long("config")
         .help("Location of the configuration file to manage.")
-        .default_value("~/.config/server.conf");
+        .default_value("~/.config/oxy/server.conf");
     SubCommand::with_name("configure")
         .about("Manage configuration")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(SubCommand::with_name("encrypt-config").about("Protect client keys with a passphrase"))
+        .subcommand(
+            SubCommand::with_name("encrypt-config")
+                .about("Protect client keys with a passphrase")
+                .arg(&config_client),
+        )
         .subcommand(
             SubCommand::with_name("learn-client")
                 .about("Register a new client that is allowed to connect to this server")

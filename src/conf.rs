@@ -57,8 +57,49 @@ fn decrypt(mut data: Vec<u8>, passphrase: &str) -> Option<String> {
     Some(result.unwrap().to_string())
 }
 
-fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Value, String> {
+fn encrypt(data: &[u8], passphrase: &str) -> Vec<u8> {
+    let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
+    let mut salt = [0u8; 32];
+    let mut nonce = [0u8; 12];
+    ::snow::types::Random::fill_bytes(&mut *rng, &mut nonce);
+    ::snow::types::Random::fill_bytes(&mut *rng, &mut salt);
+    let difficulty = (10240u32).to_be().to_bytes();
+    let mut key = [0u8; 32];
+    ::ring::pbkdf2::derive(&::ring::digest::SHA512, 10240, &salt, passphrase.as_bytes(), &mut key);
+    let key = ::ring::aead::SealingKey::new(&::ring::aead::AES_256_GCM, &key).unwrap();
+    let mut encrypt_buf = data.to_vec();
+    encrypt_buf.resize(data.len() + 16, 0);
+    let encrypted_size = ::ring::aead::seal_in_place(&key, &nonce, b"", &mut encrypt_buf, 16);
+    if encrypted_size.is_err() {
+        error!("Failed to encrypt config: {:?}", encrypted_size);
+        ::std::process::exit(1);
+    }
+    debug_assert!(encrypted_size.unwrap() == encrypt_buf.len());
+    let mut result = salt.to_vec();
+    result.extend(&nonce);
+    result.extend(&difficulty);
+    result.extend(&encrypt_buf);
+    result
+}
+
+fn read_passphrase(passphrase_for: &str) -> Result<String, String> {
     use std::io::Write;
+    let mut tty = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
+    let mut tty2 = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
+    let _ = write!(tty, "Please enter passphrase for {}: ", passphrase_for);
+    let passphrase = ::termion::input::TermRead::read_passwd(&mut tty, &mut tty2);
+    let _ = write!(tty, "\n");
+    if passphrase.is_err() {
+        Err("Failed to read passphrase")?;
+    }
+    let passphrase = passphrase.unwrap();
+    if passphrase.is_none() {
+        Err("Failed to read passphrase")?;
+    }
+    Ok(passphrase.unwrap())
+}
+
+fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Value, String> {
     let is_encrypted = input_config
         .as_table()
         .ok_or("Failed to interpret toml as table")?
@@ -73,22 +114,10 @@ fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Va
         .decode(encrypted_config.as_str().ok_or("Encrypted config is not a string?")?.as_bytes())
         .map_err(|_| "Failed to decode encrypted config value.")?;
 
-    let mut tty = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
-    let mut tty2 = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
-    let _ = write!(tty, "Please enter passphrase for {}: ", file_path);
-    let passphrase = ::termion::input::TermRead::read_passwd(&mut tty, &mut tty2);
-    let _ = write!(tty, "\n");
-    if passphrase.is_err() {
-        Err("Failed to read passphrase")?;
-    }
-    let passphrase = passphrase.unwrap();
-    if passphrase.is_none() {
-        Err("Failed to read passphrase")?;
-    }
-    let passphrase = passphrase.unwrap();
+    let passphrase = read_passphrase(file_path)?;
     let plaintext_config = decrypt(encrypted_config, &passphrase);
     if plaintext_config.is_none() {
-        Err("Failed to decrypt_passphrase")?;
+        Err("Decryption failed")?;
     }
     let plaintext_config = plaintext_config.unwrap();
     let result_config = toml::Value::from_str(&plaintext_config);
@@ -141,7 +170,7 @@ fn load_from_home(path: &str) -> Option<toml::Value> {
     let value = value.unwrap();
     let value = decrypt_config(value, &path);
     if value.is_err() {
-        warn!("Error decrypting TOML. {:?}", value);
+        error!("Failed to decrypt config file.");
         return None;
     }
     debug!("Successfully loaded {:?}", path);
@@ -597,9 +626,57 @@ crate fn configure() {
     let subcommand = crate::arg::matches().subcommand_name().unwrap().to_string();
     match subcommand.as_str() {
         "initialize-server" => initialize_server(),
-        "encrypt-config" => unimplemented!(),
+        "encrypt-config" => encrypt_config(),
         _ => unimplemented!(),
     }
+}
+
+fn encrypt_config() {
+    let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config");
+    if config_path.is_none() {
+        error!("No config path specified");
+        ::std::process::exit(1);
+    }
+    let config_path = config_path.unwrap();
+
+    let config_path = resolve_path(config_path);
+
+    let file = ::std::fs::File::open(&config_path);
+    if file.is_err() {
+        error!("Failed to open config {:?} for reading: {:?}", config_path, file);
+        ::std::process::exit(1);
+    }
+    let mut file = file.unwrap();
+    let mut buf = Vec::new();
+    let result = ::std::io::Read::read_to_end(&mut file, &mut buf);
+    if result.is_err() {
+        error!("Failed to read config {:?}", result);
+        ::std::process::exit(1);
+    }
+    ::std::mem::drop(file);
+    let passphrase = read_passphrase(&config_path);
+    if passphrase.is_err() {
+        error!("{}", passphrase.unwrap_err());
+        ::std::process::exit(1);
+    }
+    let passphrase = passphrase.unwrap();
+    let encrypted = encrypt(&buf, &passphrase);
+    let encrypted = ::data_encoding::BASE32_NOPAD.encode(&encrypted);
+    let file = ::std::fs::File::create(&config_path);
+    if file.is_err() {
+        error!("Failed to open config for writing: {:?}", file);
+        ::std::process::exit(1);
+    }
+    let mut file = file.unwrap();
+    let mut output_config = ::toml::value::Table::new();
+    output_config.insert("encrypted".to_string(), ::toml::value::Value::String(encrypted));
+    let output_config = ::toml::to_string(&output_config).unwrap();
+    let result = ::std::io::Write::write_all(&mut file, output_config.as_bytes());
+    if result.is_err() {
+        error!("Failed to write config: {:?}", result);
+        ::std::process::exit(1);
+    }
+    info!("Configuration successfully encrypted.");
 }
 
 fn initialize_server() {
@@ -630,7 +707,7 @@ fn initialize_server() {
 
     let config: String = ::toml::to_string(&config).unwrap();
 
-    if let Some(config_path) = crate::arg::matches().subcommand_matches("initialize-server").unwrap().value_of("config") {
+    if let Some(config_path) = crate::arg::matches().subcommand().1.unwrap().value_of("config") {
         let config_path = resolve_path(config_path);
         match ::std::fs::File::create(&config_path) {
             Ok(mut file) => {
