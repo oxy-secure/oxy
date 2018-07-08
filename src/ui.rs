@@ -234,18 +234,22 @@ impl Ui {
         let registration = Rc::new(registration);
         let registration2 = registration.clone();
         let proxy = self.clone();
+        let token2 = Rc::new(RefCell::new(0usize));
+        let token3 = token2.clone();
         let token = ::transportation::insert_listener(Rc::new(move || {
             let input: Result<String, _> = rx.recv();
             debug!("Readline thread sent {:?}", input);
             ::transportation::borrow_poll(|poll| {
                 poll.deregister(&*registration2).unwrap();
             });
+            ::transportation::remove_listener(*token2.borrow());
             let bt = BufferedTransport::from(::libc::STDIN_FILENO);
             bt.set_notify(Rc::new(proxy.clone()));
             *proxy.internal.underlying.borrow_mut() = Some(bt);
             proxy.metacommand(input.unwrap());
             proxy.raw();
         }));
+        *token3.borrow_mut() = token;
         ::transportation::borrow_poll(|poll| {
             poll.register(
                 &*registration,
@@ -255,11 +259,33 @@ impl Ui {
             ).unwrap();
         });
         ::std::thread::spawn(move || {
-            let mut editor = ::rustyline::Editor::<()>::new();
-            let result = editor.readline("oxy> ").unwrap_or_else(|_| "".to_string());
+            let result: String = read_line();
             set_readiness.set_readiness(::transportation::mio::Ready::readable()).unwrap();
-            tx.send(result).unwrap();
+            let _ = tx.send(result);
         });
+    }
+}
+
+fn read_line() -> String {
+    let reader = ::linefeed::Interface::new("oxy");
+    if let Err(error) = reader {
+        eprintln!("");
+        warn!("Failed to instantiate linefeed reader: {:?}", error);
+        eprint!("oxy> ");
+        let mut line = String::new();
+        let _ = ::std::io::stdin().read_line(&mut line);
+        return line;
+    }
+    let reader = reader.unwrap();
+    reader.set_prompt("oxy> ");
+    let result = reader.read_line();
+    match result {
+        Ok(::linefeed::reader::ReadResult::Input(result)) => {
+            return result;
+        }
+        _ => {
+            return "".to_string();
+        }
     }
 }
 

@@ -44,7 +44,7 @@ fn create_app() -> App<'static, 'static> {
             .arg(Arg::with_name("offset end").long("end").takes_value(true)),
         SubCommand::with_name("upload")
             .about("Upload a file")
-            .arg(Arg::with_name("local path").index(1))
+            .arg(Arg::with_name("local path").index(1).required(true))
             .arg(Arg::with_name("remote path").index(2))
             .arg(Arg::with_name("offset start").long("start").takes_value(true)),
         SubCommand::with_name("tun")
@@ -63,7 +63,7 @@ fn create_app() -> App<'static, 'static> {
             .arg(Arg::with_name("remote tap").index(2)),
         SubCommand::with_name("socks")
             .about("Bind a local port as a SOCKS5 proxy server")
-            .arg(Arg::with_name("bind spec").index(1)),
+            .arg(Arg::with_name("bind spec").index(1).required(true)),
         SubCommand::with_name("pty")
             .about(
                 "Open a remote PTY. \
