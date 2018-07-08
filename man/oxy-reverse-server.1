@@ -1,14 +1,17 @@
-.TH "oxy-reverse-server" 1 "Tue Jun 26 11:24:25 UTC 2018" "version 2.0.2"
+.TH "oxy-reverse-server" 1 "Fri Jul  6 01:45:34 UTC 2018" "version 3.0.0-dev1"
 .SH NAME
 oxy-reverse-server
 .SH SYNOPSIS
-oxy reverse-server [-hipVv] <destination>
+oxy reverse-server [-hVv] <destination>
 .SH DESCRIPTION
 Connect out to a listening client. Then, be a server.
 .PP
-.B --client-config <client config>
+.B --config
 .RS
-Path to client.conf [default: ~/.config/oxy/client.conf]
+Path to configuration file (defaults to ~/.config/oxy/server.conf for
+.RE
+.RS
+servers and ~/.config/oxy/client.conf for clients)
 .RE
 
 .B --forced-command <forced command>
@@ -21,22 +24,28 @@ Restrict command execution to the specified command
 Prints help information
 .RE
 
-.B -i, --identity <identity>
+.B --knock-port <knock port>
 .RS
-Use [identity] as authentication information for connecting to the remote
-.RE
-.RS
-server. [env: OXY_IDENTITY=]
+Override port used for UDP knock
 .RE
 
-.B -p, --port <port>
+.B --multiplexer <multiplexer>
 .RS
-The port used for TCP [default: 2600]
+The command to attach to a terminal multiplexer. Ignored if the first
+.RE
+.RS
+component is not an existent file, or if --no-tmux is supplied. [default:
 .RE
 
-.B --server-config <server config>
+/usr/bin/tmux new-session -A -s oxy]
+.B --no-tmux
 .RS
-Path to server.conf [default: ~/.config/oxy/server.conf]
+Do not use a terminal multiplexer as the default pty command
+.RE
+
+.B --tcp-port <tcp port>
+.RS
+Override port used for TCP
 .RE
 
 .B -V, --version

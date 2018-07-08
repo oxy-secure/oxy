@@ -12,18 +12,23 @@ use transportation::{BufferedTransport, Notifiable, Notifies};
 
 #[derive(Clone)]
 crate struct Ui {
-    notify_hook:         Rc<RefCell<Option<Rc<dyn Notifiable>>>>,
-    underlying:          BufferedTransport,
-    messages:            Rc<RefCell<Vec<UiMessage>>>,
-    platform:            Rc<RefCell<UiPlatformData>>,
-    prev_progress:       Rc<RefCell<u64>>,
-    escapestate:         Rc<RefCell<u64>>,
-    progress_start_time: Rc<RefCell<Option<Instant>>>,
-    progress_prev_time:  Rc<RefCell<Option<Instant>>>,
-    progress_bytes:      Rc<RefCell<u64>>,
+    internal: Rc<UiInternal>,
+}
+
+#[derive(Default)]
+crate struct UiInternal {
+    notify_hook:         RefCell<Option<Rc<dyn Notifiable>>>,
+    underlying:          RefCell<Option<BufferedTransport>>,
+    messages:            RefCell<Vec<UiMessage>>,
+    platform:            RefCell<UiPlatformData>,
+    prev_progress:       RefCell<u64>,
+    escapestate:         RefCell<u64>,
+    progress_start_time: RefCell<Option<Instant>>,
+    progress_bytes:      RefCell<u64>,
 }
 
 #[cfg(unix)]
+#[derive(Default)]
 struct UiPlatformData {
     raw: Option<RawTerminal<File>>,
 }
@@ -40,20 +45,11 @@ impl Ui {
         #[cfg(unix)]
         {
             debug!("Creating a UI");
-            let platform = UiPlatformData { raw: None };
-            let ui = Ui {
-                notify_hook:         Rc::new(RefCell::new(None)),
-                underlying:          BufferedTransport::from(0),
-                platform:            Rc::new(RefCell::new(platform)),
-                messages:            Rc::new(RefCell::new(Vec::new())),
-                prev_progress:       Rc::new(RefCell::new(1000)),
-                escapestate:         Rc::new(RefCell::new(0)),
-                progress_start_time: Rc::new(RefCell::new(None)),
-                progress_prev_time:  Rc::new(RefCell::new(None)),
-                progress_bytes:      Rc::new(RefCell::new(0)),
-            };
+            let ui = UiInternal::default();
+            *ui.underlying.borrow_mut() = Some(BufferedTransport::from(::libc::STDIN_FILENO));
+            let ui = Ui { internal: Rc::new(ui) };
             let ui2 = ui.clone();
-            ui.underlying.set_notify(Rc::new(ui2));
+            ui.internal.underlying.borrow().as_ref().unwrap().set_notify(Rc::new(ui2));
 
             let old_panic_hook = ::std::panic::take_hook();
             ::std::panic::set_hook(Box::new(move |x| {
@@ -70,23 +66,29 @@ impl Ui {
     crate fn paint_progress_bar(&self, progress: u64, bytes: u64) {
         #[cfg(unix)]
         {
-            if progress < *self.prev_progress.borrow_mut() {
-                *self.progress_start_time.borrow_mut() = Some(Instant::now());
-                *self.progress_bytes.borrow_mut() = 0;
+            if progress < *self.internal.prev_progress.borrow_mut() {
+                *self.internal.progress_start_time.borrow_mut() = Some(Instant::now());
+                *self.internal.progress_bytes.borrow_mut() = 0;
             }
 
-            *self.progress_bytes.borrow_mut() += bytes;
+            *self.internal.progress_bytes.borrow_mut() += bytes;
 
-            if progress == *self.prev_progress.borrow() {
+            if progress == *self.internal.prev_progress.borrow() {
                 return;
             }
-            *self.prev_progress.borrow_mut() = progress;
+            *self.internal.prev_progress.borrow_mut() = progress;
             self.cooked();
             let width = ::termion::terminal_size().unwrap().0 as u64;
             let percentage = progress / 10;
             let decimal = progress % 10;
-            let bytes = *self.progress_bytes.borrow();
-            let seconds = self.progress_start_time.borrow().as_ref().map(|x| x.elapsed().as_secs()).unwrap_or(0);
+            let bytes = *self.internal.progress_bytes.borrow();
+            let seconds = self
+                .internal
+                .progress_start_time
+                .borrow()
+                .as_ref()
+                .map(|x| x.elapsed().as_secs())
+                .unwrap_or(0);
             let throughput = crate::util::format_throughput(bytes, seconds);
             let bytes = crate::util::format_bytes(bytes);
             let line1 = format!("{}.{}%, {}, {}s, throughput: {}", percentage, decimal, bytes, seconds, throughput);
@@ -150,8 +152,8 @@ impl Ui {
         #[cfg(unix)]
         {
             if self.is_raw() {
-                self.platform.borrow_mut().raw.as_mut().unwrap().write_all(&data[..]).unwrap();
-                self.platform.borrow_mut().raw.as_mut().unwrap().flush().unwrap();
+                self.internal.platform.borrow_mut().raw.as_mut().unwrap().write_all(&data[..]).unwrap();
+                self.internal.platform.borrow_mut().raw.as_mut().unwrap().flush().unwrap();
             }
         }
     }
@@ -166,15 +168,15 @@ impl Ui {
     }
 
     crate fn recv(&self) -> Option<UiMessage> {
-        if self.messages.borrow_mut().len() == 0 {
+        if self.internal.messages.borrow_mut().len() == 0 {
             return None;
         }
-        Some(self.messages.borrow_mut().remove(0))
+        Some(self.internal.messages.borrow_mut().remove(0))
     }
 
     #[cfg(unix)]
     crate fn cooked(&self) {
-        self.platform.borrow_mut().raw.take();
+        self.internal.platform.borrow_mut().raw.take();
     }
 
     #[cfg(unix)]
@@ -183,19 +185,26 @@ impl Ui {
             return;
         }
         let raw = termion::get_tty().unwrap().into_raw_mode().unwrap();
-        self.platform.borrow_mut().raw = Some(raw);
+        self.internal.platform.borrow_mut().raw = Some(raw);
     }
 
     #[cfg(unix)]
     fn is_raw(&self) -> bool {
-        self.platform.borrow_mut().raw.is_some()
+        self.internal.platform.borrow_mut().raw.is_some()
     }
 
     #[cfg(unix)]
     fn write_tty(&self, output: &str) {
         if self.is_raw() {
-            self.platform.borrow_mut().raw.as_mut().unwrap().write_all(output.as_bytes()).unwrap();
-            self.platform.borrow_mut().raw.as_mut().unwrap().flush().unwrap();
+            self.internal
+                .platform
+                .borrow_mut()
+                .raw
+                .as_mut()
+                .unwrap()
+                .write_all(output.as_bytes())
+                .unwrap();
+            self.internal.platform.borrow_mut().raw.as_mut().unwrap().flush().unwrap();
             return;
         }
         let mut tty = termion::get_tty().unwrap();
@@ -204,10 +213,30 @@ impl Ui {
     }
 
     fn send(&self, msg: UiMessage) {
-        self.messages.borrow_mut().push(msg);
-        if self.notify_hook.borrow_mut().is_some() {
-            let hook = self.notify_hook.borrow_mut().as_ref().unwrap().clone();
+        self.internal.messages.borrow_mut().push(msg);
+        if self.internal.notify_hook.borrow_mut().is_some() {
+            let hook = self.internal.notify_hook.borrow_mut().as_ref().unwrap().clone();
             hook.notify();
+        }
+    }
+
+    fn metacommand(&self, metacommand: String) {
+        match metacommand.trim() {
+            "quit" => {
+                cleanup();
+                ::std::process::exit(0)
+            }
+            x => {
+                let parts = shlex::split(x);
+                if parts.is_none() {
+                    warn!("Failed to split command input");
+                    self.raw();
+                    return;
+                }
+                let parts = parts.unwrap();
+                let msg = UiMessage::MetaCommand { parts };
+                self.send(msg)
+            }
         }
     }
 }
@@ -216,9 +245,9 @@ crate fn cleanup() {
     #[cfg(unix)]
     unsafe {
         let mut bits: i32 = 0;
-        ::libc::fcntl(0, ::libc::F_GETFL, &mut bits);
+        ::libc::fcntl(::libc::STDIN_FILENO, ::libc::F_GETFL, &mut bits);
         bits &= !::libc::O_NONBLOCK;
-        ::libc::fcntl(0, ::libc::F_SETFL, bits);
+        ::libc::fcntl(::libc::STDIN_FILENO, ::libc::F_SETFL, bits);
     }
 }
 
@@ -233,24 +262,58 @@ impl Notifiable for Ui {
             let key_c = [67];
             let dot = [46];
 
-            let mut data = self.underlying.take();
+            let mut data = self.internal.underlying.borrow().as_ref().unwrap().take();
             if data[..] == f10[..] {
-                self.write_tty("\n\roxy> ");
+                if let Some(bt) = self.internal.underlying.borrow_mut().take() {
+                    bt.detach();
+                }
+                cleanup();
                 self.cooked();
+                let (tx, rx) = ::std::sync::mpsc::sync_channel(0);
+                let (registration, set_readiness) = ::transportation::mio::Registration::new2();
+                let registration = Rc::new(registration);
+                let registration2 = registration.clone();
+                let proxy = self.clone();
+                let token = ::transportation::insert_listener(Rc::new(move || {
+                    let input: Result<String, _> = rx.recv();
+                    debug!("Readline thread sent {:?}", input);
+                    ::transportation::borrow_poll(|poll| {
+                        poll.deregister(&*registration2).unwrap();
+                    });
+                    let bt = BufferedTransport::from(::libc::STDIN_FILENO);
+                    bt.set_notify(Rc::new(proxy.clone()));
+                    *proxy.internal.underlying.borrow_mut() = Some(bt);
+                    proxy.metacommand(input.unwrap());
+                    proxy.raw();
+                }));
+                ::transportation::borrow_poll(|poll| {
+                    poll.register(
+                        &*registration,
+                        ::transportation::mio::Token(token),
+                        ::transportation::mio::Ready::readable(),
+                        ::transportation::mio::PollOpt::level(),
+                    ).unwrap();
+                });
+                ::std::thread::spawn(move || {
+                    let mut editor = ::rustyline::Editor::<()>::new();
+                    let result = editor.readline("oxy> ").unwrap_or_else(|_| "".to_string());
+                    set_readiness.set_readiness(::transportation::mio::Ready::readable()).unwrap();
+                    tx.send(result).unwrap();
+                });
                 return;
             }
             if data[..] == f12[..] {
                 ::crate::exit::exit(0);
             }
             if data[..] == enter[..] {
-                *self.escapestate.borrow_mut() = 1;
+                *self.internal.escapestate.borrow_mut() = 1;
             } else {
-                let cur = *self.escapestate.borrow();
+                let cur = *self.internal.escapestate.borrow();
                 if cur == 1 && data[..] == tilde[..] {
-                    *self.escapestate.borrow_mut() = 2;
+                    *self.internal.escapestate.borrow_mut() = 2;
                     return;
                 } else if cur == 2 && data[..] == key_c[..] {
-                    *self.escapestate.borrow_mut() = 1;
+                    *self.internal.escapestate.borrow_mut() = 1;
                     self.write_tty("\n\roxy> ");
                     self.cooked();
                     return;
@@ -260,31 +323,10 @@ impl Notifiable for Ui {
                     let mut data2 = tilde.to_vec();
                     data2.extend(data);
                     data = data2;
-                    *self.escapestate.borrow_mut() = 0;
+                    *self.internal.escapestate.borrow_mut() = 0;
                 } else {
-                    *self.escapestate.borrow_mut() = 0;
+                    *self.internal.escapestate.borrow_mut() = 0;
                 }
-            }
-            if !self.is_raw() {
-                match String::from_utf8(data.to_vec()).unwrap().trim() {
-                    "quit" => {
-                        cleanup();
-                        ::std::process::exit(0)
-                    }
-                    x => {
-                        let parts = shlex::split(x);
-                        if parts.is_none() {
-                            warn!("Failed to split command input");
-                            self.raw();
-                            return;
-                        }
-                        let parts = parts.unwrap();
-                        let msg = UiMessage::MetaCommand { parts };
-                        self.send(msg)
-                    }
-                }
-                self.raw();
-                return;
             }
             debug!("UI Data: {:?}", data);
             let msg = UiMessage::RawInput { input: data };
@@ -295,7 +337,7 @@ impl Notifiable for Ui {
 
 impl Notifies for Ui {
     fn set_notify(&self, callback: Rc<dyn Notifiable>) {
-        *self.notify_hook.borrow_mut() = Some(callback);
+        *self.internal.notify_hook.borrow_mut() = Some(callback);
     }
 }
 

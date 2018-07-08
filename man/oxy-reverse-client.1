@@ -1,8 +1,8 @@
-.TH "oxy-reverse-client" 1 "Tue Jun 26 11:24:25 UTC 2018" "version 2.0.2"
+.TH "oxy-reverse-client" 1 "Fri Jul  6 01:45:34 UTC 2018" "version 3.0.0-dev1"
 .SH NAME
 oxy-reverse-client
 .SH SYNOPSIS
-oxy reverse-client [-DYXChimpVv] <bind-address> <command>
+oxy reverse-client [-DYXChmVv] <bind-address> <command>...
 .SH DESCRIPTION
 Bind a port and wait for a server to connect. Then, be a client.
 .PP
@@ -31,14 +31,17 @@ Enable trusted X forwarding
 Enable X forwarding
 .RE
 
-.B --client-config <client config>
-.RS
-Path to client.conf [default: ~/.config/oxy/client.conf]
-.RE
-
 .B -C, --compress
 .RS
 Enable ZLIB format compression of all transmitted data
+.RE
+
+.B --config
+.RS
+Path to configuration file (defaults to ~/.config/oxy/server.conf for servers
+.RE
+.RS
+and ~/.config/oxy/client.conf for clients)
 .RE
 
 .B -h, --help
@@ -46,12 +49,9 @@ Enable ZLIB format compression of all transmitted data
 Prints help information
 .RE
 
-.B -i, --identity <identity>
+.B --knock-port <knock port>
 .RS
-Use [identity] as authentication information for connecting to the remote
-.RE
-.RS
-server. [env: OXY_IDENTITY=]
+Override port used for UDP knock
 .RE
 
 .B -m, --metacommand <metacommand>...
@@ -62,22 +62,39 @@ A command to run after the connection is established. The same commands from
 the F10 prompt.
 .RE
 
-.B -p, --port <port>
+.B --tap <local[:remote]>
 .RS
-The port used for TCP [default: 2600]
+Connect two tap devices together. This will work if either: both sides of the
+.RE
+.RS
+connection have root privileges (not recommended), or if the devices have been
+.RE
+.RS
+previously created with appropriate permissions (e.g. 'ip tuntap add tap0 mode
+.RE
+.RS
+tap user [youruser]')
 .RE
 
-.B --server-config <server config>
+.B --tcp-port <tcp port>
 .RS
-Path to server.conf [default: ~/.config/oxy/server.conf]
+Override port used for TCP
 .RE
 
-.B --user <user>
+.B --tun <local[:remote]>
 .RS
-The remote username to log in with. Only applicable for servers using --su
+Connect two tunnel devices together. This will work if either: both sides of
+.RE
+.RS
+the connection have root privileges (not recommended), or if the devices have
+.RE
+.RS
+been previously created with appropriate permissions (e.g. 'ip tuntap add tun0
+.RE
+.RS
+mode tun user [youruser]')
 .RE
 
-.B -mode
 .B -V, --version
 .RS
 Prints version information
