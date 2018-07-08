@@ -924,7 +924,7 @@ dependencies = [
 [[package]]
 name = "transportation"
 version = "3.0.0-dev"
-source = "git+https://github.com/oxy-secure/transportation.git?branch=dev#70c04be2f0c71bf05c4de3e921ddfa656217c3a1"
+source = "git+https://github.com/oxy-secure/transportation.git?branch=dev#def8982a7638f01d98e93a706c8c36413995813a"
 dependencies = [
  "byteorder 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",

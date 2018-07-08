@@ -50,15 +50,7 @@ impl Ui {
             let ui = Ui { internal: Rc::new(ui) };
             let ui2 = ui.clone();
             ui.internal.underlying.borrow().as_ref().unwrap().set_notify(Rc::new(ui2));
-
-            let old_panic_hook = ::std::panic::take_hook();
-            ::std::panic::set_hook(Box::new(move |x| {
-                ::std::process::Command::new("stty").arg("cooked").arg("echo").spawn().ok();
-                cleanup();
-                old_panic_hook(x)
-            }));
             ui.raw();
-
             ui
         }
     }
@@ -221,33 +213,53 @@ impl Ui {
     }
 
     fn metacommand(&self, metacommand: String) {
-        match metacommand.trim() {
-            "quit" => {
-                cleanup();
-                ::std::process::exit(0)
-            }
-            x => {
-                let parts = shlex::split(x);
-                if parts.is_none() {
-                    warn!("Failed to split command input");
-                    self.raw();
-                    return;
-                }
-                let parts = parts.unwrap();
-                let msg = UiMessage::MetaCommand { parts };
-                self.send(msg)
-            }
+        let parts = shlex::split(metacommand.trim());
+        if parts.is_none() {
+            warn!("Failed to split command input");
+            self.raw();
+            return;
         }
+        let parts = parts.unwrap();
+        let msg = UiMessage::MetaCommand { parts };
+        self.send(msg)
     }
-}
 
-crate fn cleanup() {
-    #[cfg(unix)]
-    unsafe {
-        let mut bits: i32 = 0;
-        ::libc::fcntl(::libc::STDIN_FILENO, ::libc::F_GETFL, &mut bits);
-        bits &= !::libc::O_NONBLOCK;
-        ::libc::fcntl(::libc::STDIN_FILENO, ::libc::F_SETFL, bits);
+    fn spawn_readline_thread(&self) {
+        if let Some(bt) = self.internal.underlying.borrow_mut().take() {
+            bt.detach();
+        }
+        self.cooked();
+        let (tx, rx) = ::std::sync::mpsc::sync_channel(0);
+        let (registration, set_readiness) = ::transportation::mio::Registration::new2();
+        let registration = Rc::new(registration);
+        let registration2 = registration.clone();
+        let proxy = self.clone();
+        let token = ::transportation::insert_listener(Rc::new(move || {
+            let input: Result<String, _> = rx.recv();
+            debug!("Readline thread sent {:?}", input);
+            ::transportation::borrow_poll(|poll| {
+                poll.deregister(&*registration2).unwrap();
+            });
+            let bt = BufferedTransport::from(::libc::STDIN_FILENO);
+            bt.set_notify(Rc::new(proxy.clone()));
+            *proxy.internal.underlying.borrow_mut() = Some(bt);
+            proxy.metacommand(input.unwrap());
+            proxy.raw();
+        }));
+        ::transportation::borrow_poll(|poll| {
+            poll.register(
+                &*registration,
+                ::transportation::mio::Token(token),
+                ::transportation::mio::Ready::readable(),
+                ::transportation::mio::PollOpt::level(),
+            ).unwrap();
+        });
+        ::std::thread::spawn(move || {
+            let mut editor = ::rustyline::Editor::<()>::new();
+            let result = editor.readline("oxy> ").unwrap_or_else(|_| "".to_string());
+            set_readiness.set_readiness(::transportation::mio::Ready::readable()).unwrap();
+            tx.send(result).unwrap();
+        });
     }
 }
 
@@ -264,42 +276,7 @@ impl Notifiable for Ui {
 
             let mut data = self.internal.underlying.borrow().as_ref().unwrap().take();
             if data[..] == f10[..] {
-                if let Some(bt) = self.internal.underlying.borrow_mut().take() {
-                    bt.detach();
-                }
-                cleanup();
-                self.cooked();
-                let (tx, rx) = ::std::sync::mpsc::sync_channel(0);
-                let (registration, set_readiness) = ::transportation::mio::Registration::new2();
-                let registration = Rc::new(registration);
-                let registration2 = registration.clone();
-                let proxy = self.clone();
-                let token = ::transportation::insert_listener(Rc::new(move || {
-                    let input: Result<String, _> = rx.recv();
-                    debug!("Readline thread sent {:?}", input);
-                    ::transportation::borrow_poll(|poll| {
-                        poll.deregister(&*registration2).unwrap();
-                    });
-                    let bt = BufferedTransport::from(::libc::STDIN_FILENO);
-                    bt.set_notify(Rc::new(proxy.clone()));
-                    *proxy.internal.underlying.borrow_mut() = Some(bt);
-                    proxy.metacommand(input.unwrap());
-                    proxy.raw();
-                }));
-                ::transportation::borrow_poll(|poll| {
-                    poll.register(
-                        &*registration,
-                        ::transportation::mio::Token(token),
-                        ::transportation::mio::Ready::readable(),
-                        ::transportation::mio::PollOpt::level(),
-                    ).unwrap();
-                });
-                ::std::thread::spawn(move || {
-                    let mut editor = ::rustyline::Editor::<()>::new();
-                    let result = editor.readline("oxy> ").unwrap_or_else(|_| "".to_string());
-                    set_readiness.set_readiness(::transportation::mio::Ready::readable()).unwrap();
-                    tx.send(result).unwrap();
-                });
+                self.spawn_readline_thread();
                 return;
             }
             if data[..] == f12[..] {

@@ -76,7 +76,7 @@ fn create_app() -> App<'static, 'static> {
                  Useful for Windows servers.",
             )
             .arg(Arg::with_name("command").index(1).multiple(true)),
-        SubCommand::with_name("exit").about("Exits the Oxy client."),
+        SubCommand::with_name("exit").about("Exits the Oxy client.").alias("quit"),
         SubCommand::with_name("f10").about("Send F10 to the remote"),
         SubCommand::with_name("f12").about("Send F12 to the remote"),
         SubCommand::with_name("hash")
@@ -253,7 +253,8 @@ impl Oxy {
                                             reference,
                                             complete,
                                             answers,
-                                        } if *reference == id =>
+                                        }
+                                            if *reference == id =>
                                         {
                                             for answer in answers {
                                                 let mut new_remote_path: PathBuf = remote_path.clone().into();
@@ -698,7 +699,7 @@ impl Oxy {
                             }),
                         );
                     }
-                    "exit" => {
+                    "exit" | "quit" => {
                         ::std::process::exit(0);
                     }
                     "f10" => {

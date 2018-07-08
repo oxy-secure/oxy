@@ -190,7 +190,6 @@ impl Oxy {
                 if let Some(x) = proxy.internal.ui.borrow_mut().as_ref() {
                     x.cooked()
                 };
-                crate::ui::cleanup();
                 if proxy.internal.ptys.borrow().values().next().is_some() {
                     use nix::sys::signal::{kill, Signal::*};
                     kill(proxy.internal.ptys.borrow().values().next().unwrap().child_pid, SIGTERM).ok();
