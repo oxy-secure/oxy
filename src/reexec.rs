@@ -41,7 +41,7 @@ crate fn safety_check_hard() {
         warn!("Using --unsafe-reexec");
         return;
     }
-    if !(path.starts_with(::std::env::home_dir().unwrap()) || path.starts_with("/usr")) {
+    if !(path.starts_with(::dirs::home_dir().unwrap()) || path.starts_with("/usr")) {
         error!("Re-execution can lead to privilege escalation if another user can write to the executable path. Oxy detected that it is running from an uncommon location which makes it more likely this might apply. If you are certain no other user can hijack the path {:?}, run again with --unsafe-reexec", path);
         ::std::process::exit(1);
     }

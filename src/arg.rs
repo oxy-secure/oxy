@@ -41,11 +41,21 @@ fn configure_subcommand() -> App<'static, 'static> {
         .subcommand(
             SubCommand::with_name("learn-server")
                 .about("Register a new server to connect to.")
-                .arg(Arg::with_name("name").help("Name for the server").required(true))
-                .arg(Arg::with_name("tcp-port").long("tcp-port").help("TCP port"))
-                .arg(Arg::with_name("knock-port").long("knock-port").help("knock port"))
-                .arg(Arg::with_name("knock").long("knock").help("knock key").required(true))
-                .arg(Arg::with_name("pubkey").help("Public key for the server").required(true))
+                .arg(
+                    Arg::with_name("name")
+                        .long("name")
+                        .takes_value(true)
+                        .help("Name for the server")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("import-string")
+                        .long("import-string")
+                        .takes_value(true)
+                        .help("Server description provided by server initialization.")
+                        .required(true),
+                )
+                .arg(Arg::with_name("host").help("IP address or DNS name used for connections. Defaults to the value of \"name\""))
                 .arg(&config_client),
         )
         .subcommand(

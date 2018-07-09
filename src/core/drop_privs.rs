@@ -67,7 +67,7 @@ impl Oxy {
                     *self.internal.privs_dropped.borrow_mut() = true;
                 }
             } else {
-                if let Some(home) = ::std::env::home_dir() {
+                if let Some(home) = ::dirs::home_dir() {
                     ::std::env::set_current_dir(home).ok();
                 }
             }

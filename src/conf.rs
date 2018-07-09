@@ -130,7 +130,7 @@ fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Va
 fn resolve_path(path: &str) -> String {
     let mut path = path.to_string();
     if path.starts_with("~") {
-        let home = ::std::env::home_dir();
+        let home = ::dirs::home_dir();
         if home.is_none() {
             error!("Failed to find home directory");
             ::std::process::exit(1);
@@ -142,7 +142,7 @@ fn resolve_path(path: &str) -> String {
     path
 }
 
-fn load_file(path: &str) -> Option<toml::Value> {
+fn toml_from_disk(path: &str) -> Option<toml::Value> {
     let path = resolve_path(path);
     let file = File::open(&path);
     if file.is_err() {
@@ -167,7 +167,11 @@ fn load_file(path: &str) -> Option<toml::Value> {
         warn!("Error parsing TOML: {:?}", value);
         return None;
     }
-    let value = value.unwrap();
+    value.ok()
+}
+
+fn load_file(path: &str) -> Option<toml::Value> {
+    let value = toml_from_disk(path)?;
     let value = decrypt_config(value, &path);
     if value.is_err() {
         error!("Failed to decrypt config file.");
@@ -628,6 +632,7 @@ crate fn configure() {
         "initialize-server" => initialize_server(),
         "encrypt-config" => subcommand_encrypt_config(),
         "decrypt-config" => subcommand_decrypt_config(),
+        "learn-server" => subcommand_learn_server(),
         _ => unimplemented!(),
     }
 }
@@ -709,6 +714,18 @@ fn subcommand_encrypt_config() {
     info!("Configuration successfully encrypted.");
 }
 
+fn random_port() -> u16 {
+    let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
+    loop {
+        let mut buf = [0u8; 2];
+        ::snow::types::Random::fill_bytes(&mut *rng, &mut buf);
+        let cur: u16 = u16::from_bytes(buf);
+        if cur > 1024 {
+            return cur;
+        }
+    }
+}
+
 fn initialize_server() {
     let mut dh = ::snow::CryptoResolver::resolve_dh(&::snow::DefaultResolver, &::snow::params::DHChoice::Curve25519).unwrap();
     let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
@@ -719,6 +736,23 @@ fn initialize_server() {
     let mut knock = [0u8; 32];
     ::snow::types::Random::fill_bytes(&mut *rng, &mut knock);
 
+    let tcp_port = crate::arg::matches().subcommand().1.unwrap().value_of("tcp-port").unwrap_or("0");
+    let knock_port = crate::arg::matches().subcommand().1.unwrap().value_of("knock-port").unwrap_or("0");
+    let tcp_port = tcp_port.parse::<u16>();
+    let knock_port = knock_port.parse::<u16>();
+    if tcp_port.is_err() {
+        error!("Failed to parse TCP port");
+        ::std::process::exit(1);
+    }
+    if knock_port.is_err() {
+        error!("Failed to parse knock port");
+        ::std::process::exit(1);
+    }
+    let tcp_port = tcp_port.unwrap();
+    let knock_port = knock_port.unwrap();
+    let tcp_port = if tcp_port == 0 { random_port() } else { tcp_port };
+    let knock_port = if knock_port == 0 { random_port() } else { knock_port };
+
     let privkey = ::data_encoding::BASE32_NOPAD.encode(privkey);
     let pubkey = ::data_encoding::BASE32_NOPAD.encode(pubkey);
     let knock = ::data_encoding::BASE32_NOPAD.encode(&knock);
@@ -728,8 +762,10 @@ fn initialize_server() {
     let knock = ::toml::value::Value::String(knock);
 
     let mut config = ::toml::value::Table::new();
-    config.insert("my_pubkey".to_string(), pubkey);
+    config.insert("pubkey".to_string(), pubkey);
     config.insert("knock".to_string(), knock);
+    config.insert("tcp_port".to_string(), ::toml::value::Value::Integer(tcp_port as i64));
+    config.insert("knock_port".to_string(), ::toml::value::Value::Integer(knock_port as i64));
 
     let display_config = ::toml::to_string(&config).unwrap();
 
@@ -744,7 +780,11 @@ fn initialize_server() {
                 let result = ::std::io::Write::write_all(&mut file, config.as_bytes());
                 match result {
                     Ok(_) => {
-                        print!("{}", display_config);
+                        println!("{}", display_config);
+                        println!(
+                            "Import this server into a client using this string: {}",
+                            ::data_encoding::BASE32_NOPAD.encode(&display_config.as_bytes())
+                        );
                     }
                     Err(err) => {
                         error!("Failed to write config file {:?} {:?}", config_path, err);
@@ -756,4 +796,107 @@ fn initialize_server() {
             }
         }
     }
+}
+
+fn drop_server_named(config: &mut ::toml::Value, name: &str) {
+    if config.as_table().unwrap().get("servers").is_none() {
+        return;
+    }
+    let server_count = config.as_table().unwrap().get("servers").unwrap().as_array().unwrap().len();
+    for i in 0..server_count {
+        if config
+            .as_table()
+            .unwrap()
+            .get("servers")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .get(i)
+            .unwrap()
+            .get("name")
+            .map(|x| x.as_str().unwrap()) == Some(name)
+        {
+            config
+                .as_table_mut()
+                .unwrap()
+                .get_mut("servers")
+                .unwrap()
+                .as_array_mut()
+                .unwrap()
+                .remove(i);
+            drop_server_named(config, name);
+            return;
+        }
+    }
+}
+
+fn subcommand_learn_server() {
+    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let name = subcommand_matches.value_of("name").unwrap();
+    let import_string = subcommand_matches.value_of("import-string").unwrap();
+    let import_config = ::data_encoding::BASE32_NOPAD.decode(import_string.as_bytes());
+    if import_config.is_err() {
+        error!("Failed to decode import string");
+        ::std::process::exit(1);
+    }
+    let import_config = import_config.unwrap();
+    let import_config = String::from_utf8(import_config);
+    if import_config.is_err() {
+        error!("Failed to decode import string");
+        ::std::process::exit(1);
+    }
+    let import_config = import_config.unwrap();
+    let mut import_config = import_config.parse::<toml::Value>().unwrap();
+
+    let mut dh = ::snow::CryptoResolver::resolve_dh(&::snow::DefaultResolver, &::snow::params::DHChoice::Curve25519).unwrap();
+    let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
+    ::snow::types::Dh::generate(&mut *dh, &mut *rng);
+
+    let privkey = ::snow::types::Dh::privkey(&*dh);
+    let pubkey = ::snow::types::Dh::pubkey(&*dh);
+    let mut psk = [0u8; 32];
+    ::snow::types::Random::fill_bytes(&mut *rng, &mut psk);
+
+    import_config
+        .as_table_mut()
+        .unwrap()
+        .insert("privkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(privkey).into());
+    import_config
+        .as_table_mut()
+        .unwrap()
+        .insert("my_pubkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(pubkey).into());
+    import_config
+        .as_table_mut()
+        .unwrap()
+        .insert("psk".to_string(), ::data_encoding::BASE32_NOPAD.encode(&psk).into());
+    import_config.as_table_mut().unwrap().insert("name".to_string(), name.into());
+
+    let config_path = subcommand_matches.value_of("config").unwrap();
+    let config_path = resolve_path(config_path);
+    let config_exists = ::std::fs::metadata(&config_path).is_ok();
+    let mut old_config: ::toml::Value = if config_exists {
+        load_file(&config_path).unwrap()
+    } else {
+        "".parse().unwrap()
+    };
+
+    drop_server_named(&mut old_config, name);
+
+    if old_config.as_table().unwrap().get("servers").is_none() {
+        old_config
+            .as_table_mut()
+            .unwrap()
+            .insert("servers".to_string(), ::toml::Value::Array(vec![]));
+    }
+
+    old_config
+        .as_table_mut()
+        .unwrap()
+        .get_mut("servers")
+        .unwrap()
+        .as_array_mut()
+        .unwrap()
+        .push(import_config);
+
+    println!("{}", old_config);
 }

@@ -33,6 +33,7 @@ textwrap = { version = "0.10", features = ["term_size"] }
 parking_lot = { version = "0.6", features = ["nightly"] }
 snow = "0.2.1"
 linefeed = "0.5"
+dirs = "1"
 
 [target.'cfg(unix)'.dependencies]
 termion = "1.5.1"
