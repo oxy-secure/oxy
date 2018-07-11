@@ -150,6 +150,16 @@ fn toml_from_disk(path: &str) -> Option<toml::Value> {
         return None;
     }
     let mut file = file.unwrap();
+    let permissions = file.metadata().unwrap().permissions();
+    let permissions_mode = ::std::os::unix::fs::PermissionsExt::mode(&permissions);
+    if permissions_mode & 0o077 > 0 {
+        error!(
+            "File permissions on {} are too loose ({:04o}). Please restrict this file to owner-only access.",
+            path,
+            permissions_mode & 0o7777
+        );
+        ::std::process::exit(0);
+    }
     let mut data = Vec::new();
     let read_result = file.read_to_end(&mut data);
     if read_result.is_err() {
