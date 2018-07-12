@@ -643,6 +643,7 @@ crate fn configure() {
         "encrypt-config" => subcommand_encrypt_config(),
         "decrypt-config" => subcommand_decrypt_config(),
         "learn-server" => subcommand_learn_server(),
+        "learn-client" => subcommand_learn_client(),
         _ => unimplemented!(),
     }
 }
@@ -907,6 +908,9 @@ fn subcommand_learn_server() {
         .as_array_mut()
         .unwrap()
         .push(import_config);
-
     println!("{}", old_config);
+}
+
+fn subcommand_learn_client() {
+    ();
 }

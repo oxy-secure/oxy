@@ -109,7 +109,7 @@ crate fn get_private_key(peer: Option<&str>) -> Vec<u8> {
         debug!("Found key in config");
         return key;
     }
-    error!("No private key found.");
+    error!("No private key found for {:?}.", peer);
     ::std::process::exit(1);
 }
 

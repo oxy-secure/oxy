@@ -148,6 +148,7 @@ impl Oxy {
 
     pub fn push_send_hook(&self, callback: Rc<dyn Fn() -> bool>) {
         self.internal.send_hooks.borrow_mut().push(callback);
+        self.notify_main_transport();
     }
 
     crate fn queue_metacommand(&self, command: Vec<String>) {

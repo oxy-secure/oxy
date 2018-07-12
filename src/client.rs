@@ -41,7 +41,6 @@ crate fn run() {
             prev = Some(connect_via(prev.take().unwrap(), hop));
         }
         connect_via(prev.take().unwrap(), &crate::arg::destination());
-        info!("Here");
         transportation::run();
     }
     connect(&arg::destination());
@@ -58,6 +57,7 @@ crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
         let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
         let bt = BufferedTransport::from(socka);
         proxy_daemon.set_daemon();
+        let dest2 = dest;
         let dest = dest.to_string();
         proxy_daemon.clone().push_post_auth_hook(Rc::new(move || {
             let proxy_daemon = proxy_daemon.clone();
@@ -76,12 +76,19 @@ crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
             let bt2 = bt.clone();
             let proxy_daemon2 = proxy_daemon.clone();
             let notify = Rc::new(move || {
-                // TODO: Unlimited buffering has_write_space etc.
-                let data = bt.take();
-                proxy_daemon.send(RemoteStreamData {
-                    data,
-                    reference: stream_number,
-                });
+                let proxy_daemon2 = proxy_daemon.clone();
+                let bt = bt.clone();
+                proxy_daemon.push_send_hook(Rc::new(move || {
+                    if proxy_daemon2.has_write_space() {
+                        let data = bt.take();
+                        proxy_daemon2.send(RemoteStreamData {
+                            data,
+                            reference: stream_number,
+                        });
+                        return true;
+                    }
+                    return false;
+                }));
             });
             let bt = bt2;
             ::transportation::Notifies::set_notify(&bt.clone(), notify.clone());
@@ -101,7 +108,9 @@ crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
                 _ => false,
             }));
         }));
-        Oxy::create(sockb)
+        let result = Oxy::create(sockb);
+        result.set_peer_name(&dest2);
+        result
     }
     #[cfg(not(unix))]
     unimplemented!();
