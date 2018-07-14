@@ -384,8 +384,8 @@ fn fork_and_handle(stream: TcpStream) {
                                     // O_CLOEXEC, but it can't~
 
         let mut args = vec!["reexec".to_string(), format!("--fd={}", fd2)];
-        if let Some(command) = crate::arg::matches().value_of("forced command") {
-            args.push(format!("--forced-command={}", command));
+        if let Some(command) = crate::arg::matches().value_of("forcedcommand") {
+            args.push(format!("--forcedcommand={}", command));
         }
         if crate::arg::matches().occurrences_of("multiplexer") > 0 {
             if let Some(multiplexer) = crate::arg::matches().value_of("multiplexer") {

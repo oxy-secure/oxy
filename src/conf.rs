@@ -99,14 +99,14 @@ fn read_passphrase(passphrase_for: &str) -> Result<String, String> {
     Ok(passphrase.unwrap())
 }
 
-fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Value, String> {
+fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<(toml::Value, Option<String>), String> {
     let is_encrypted = input_config
         .as_table()
         .ok_or("Failed to interpret toml as table")?
         .contains_key("encrypted");
     if !is_encrypted {
         // It's pretty easy to decrypt a config that isn't encrypted.
-        return Ok(input_config);
+        return Ok((input_config, None));
     }
     let table = input_config.as_table().unwrap();
     let encrypted_config = table.get("encrypted").unwrap();
@@ -124,7 +124,7 @@ fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<toml::Va
     if result_config.is_err() {
         Err(format!("Failed to parse decrypted config. {:?}", result_config))?;
     }
-    Ok(result_config.unwrap())
+    Ok((result_config.unwrap(), Some(passphrase)))
 }
 
 fn resolve_path(path: &str) -> String {
@@ -180,7 +180,7 @@ fn toml_from_disk(path: &str) -> Option<toml::Value> {
     value.ok()
 }
 
-fn load_file(path: &str) -> Option<toml::Value> {
+fn load_file(path: &str) -> Option<(toml::Value, Option<String>)> {
     let value = toml_from_disk(path)?;
     let value = decrypt_config(value, &path);
     if value.is_err() {
@@ -194,12 +194,12 @@ fn load_file(path: &str) -> Option<toml::Value> {
 impl Conf {
     fn load_client_conf(&mut self) {
         let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/client.conf");
-        self.client = load_file(path);
+        self.client = load_file(path).map(|x| x.0);
     }
 
     fn load_server_conf(&mut self) {
         let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/server.conf");
-        let mut result = load_file(path);
+        let mut result = load_file(path).map(|x| x.0);
 
         let mut name_ticker: u64 = 0;
 
@@ -597,7 +597,7 @@ crate fn locate_destination(dest: &str) -> Vec<SocketAddr> {
 }
 
 crate fn forced_command(peer: Option<&str>) -> Option<String> {
-    serverside_setting(peer, "forced command", "forcedcommand")
+    serverside_setting(peer, "forcedcommand", "forcedcommand")
 }
 
 crate fn multiplexer(peer: Option<&str>) -> Option<String> {
@@ -657,7 +657,7 @@ fn subcommand_decrypt_config() {
     let config_path = config_path.unwrap();
     let config_path = resolve_path(config_path);
 
-    let config = load_file(&config_path);
+    let config = load_file(&config_path).map(|x| x.0);
     if config.is_none() {
         error!("Failed to load config.");
         ::std::process::exit(1);
@@ -700,29 +700,37 @@ fn subcommand_encrypt_config() {
         ::std::process::exit(1);
     }
     ::std::mem::drop(file);
+    let input_config: ::toml::Value = ::toml::from_slice(&buf).unwrap();
     let passphrase = read_passphrase(&config_path);
     if passphrase.is_err() {
         error!("{}", passphrase.unwrap_err());
         ::std::process::exit(1);
     }
     let passphrase = passphrase.unwrap();
-    let encrypted = encrypt(&buf, &passphrase);
-    let encrypted = ::data_encoding::BASE32_NOPAD.encode(&encrypted);
+
+    let output_config = encrypt_config(input_config, &passphrase);
+
     let file = ::std::fs::File::create(&config_path);
     if file.is_err() {
         error!("Failed to open config for writing: {:?}", file);
         ::std::process::exit(1);
     }
     let mut file = file.unwrap();
-    let mut output_config = ::toml::value::Table::new();
-    output_config.insert("encrypted".to_string(), ::toml::value::Value::String(encrypted));
-    let output_config = ::toml::to_string(&output_config).unwrap();
-    let result = ::std::io::Write::write_all(&mut file, output_config.as_bytes());
+    let result = ::std::io::Write::write_all(&mut file, ::toml::to_string(&output_config).unwrap().as_bytes());
     if result.is_err() {
         error!("Failed to write config: {:?}", result);
         ::std::process::exit(1);
     }
     info!("Configuration successfully encrypted.");
+}
+
+fn encrypt_config(unencrypted_config: ::toml::Value, passphrase: &str) -> ::toml::Value {
+    let unencrypted_data = ::toml::to_string(&unencrypted_config).unwrap().into_bytes();
+    let encrypted_data = encrypt(&unencrypted_data, passphrase);
+    let encrypted_data = ::data_encoding::BASE32_NOPAD.encode(&encrypted_data);
+    let mut output_config = ::toml::value::Table::new();
+    output_config.insert("encrypted".to_string(), ::toml::value::Value::String(encrypted_data));
+    ::toml::Value::Table(output_config)
 }
 
 fn random_port() -> u16 {
@@ -841,9 +849,8 @@ fn drop_server_named(config: &mut ::toml::Value, name: &str) {
     }
 }
 
-fn subcommand_learn_server() {
+fn load_import_config() -> ::toml::Value {
     let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
-    let name = subcommand_matches.value_of("name").unwrap();
     let import_string = subcommand_matches.value_of("import-string").unwrap();
     let import_config = ::data_encoding::BASE32_NOPAD.decode(import_string.as_bytes());
     if import_config.is_err() {
@@ -857,7 +864,13 @@ fn subcommand_learn_server() {
         ::std::process::exit(1);
     }
     let import_config = import_config.unwrap();
-    let mut import_config = import_config.parse::<toml::Value>().unwrap();
+    import_config.parse::<toml::Value>().unwrap()
+}
+
+fn subcommand_learn_server() {
+    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let name = subcommand_matches.value_of("name").unwrap();
+    let mut import_config = load_import_config();
 
     let mut dh = ::snow::CryptoResolver::resolve_dh(&::snow::DefaultResolver, &::snow::params::DHChoice::Curve25519).unwrap();
     let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
@@ -871,11 +884,11 @@ fn subcommand_learn_server() {
     import_config
         .as_table_mut()
         .unwrap()
-        .insert("privkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(privkey).into());
+        .insert("privkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(&privkey).into());
     import_config
         .as_table_mut()
         .unwrap()
-        .insert("my_pubkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(pubkey).into());
+        .insert("my_pubkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(&pubkey).into());
     import_config
         .as_table_mut()
         .unwrap()
@@ -885,10 +898,10 @@ fn subcommand_learn_server() {
     let config_path = subcommand_matches.value_of("config").unwrap();
     let config_path = resolve_path(config_path);
     let config_exists = ::std::fs::metadata(&config_path).is_ok();
-    let mut old_config: ::toml::Value = if config_exists {
+    let (mut old_config, passphrase): (::toml::Value, Option<String>) = if config_exists {
         load_file(&config_path).unwrap()
     } else {
-        "".parse().unwrap()
+        ("".parse().unwrap(), None)
     };
 
     drop_server_named(&mut old_config, name);
@@ -908,9 +921,51 @@ fn subcommand_learn_server() {
         .as_array_mut()
         .unwrap()
         .push(import_config);
-    println!("{}", old_config);
+
+    let mut display_config = ::toml::value::Table::new();
+    display_config.insert("psk".to_string(), ::data_encoding::BASE32_NOPAD.encode(&psk).into());
+    display_config.insert("pubkey".to_string(), ::data_encoding::BASE32_NOPAD.encode(&pubkey).into());
+
+    let export_string = ::data_encoding::BASE32_NOPAD.encode(::toml::to_string(&display_config).unwrap().as_bytes());
+
+    println!("{}", ::toml::Value::Table(display_config));
+    println!("Import this client: {}", export_string);
+
+    if passphrase.is_some() {
+        old_config = encrypt_config(old_config, &passphrase.unwrap());
+    }
+
+    let mut out_file = ::std::fs::File::create(&config_path).unwrap();
+    ::std::io::Write::write_all(&mut out_file, old_config.to_string().as_bytes()).unwrap();
 }
 
 fn subcommand_learn_client() {
-    ();
+    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let mut import_config = load_import_config();
+
+    for field in &["name", "setuser", "forcedcommand"] {
+        import_config.as_table_mut().unwrap().remove(*field);
+        if let Some(val) = subcommand_matches.value_of(field) {
+            import_config.as_table_mut().unwrap().insert(field.to_string(), val.into());
+        }
+    }
+
+    let config_path = subcommand_matches.value_of("config").unwrap();
+    let config_path = resolve_path(config_path);
+    let (mut old_config, passphrase) = load_file(&config_path).unwrap();
+    {
+        let clients = old_config.as_table_mut().unwrap().entry("clients".to_string());
+        clients
+            .or_insert_with(|| ::toml::Value::Array(vec![]))
+            .as_array_mut()
+            .unwrap()
+            .push(import_config);
+    }
+
+    if passphrase.is_some() {
+        old_config = encrypt_config(old_config, &passphrase.unwrap());
+    }
+    let mut out_file = ::std::fs::File::create(&config_path).unwrap();
+    ::std::io::Write::write_all(&mut out_file, old_config.to_string().as_bytes()).unwrap();
+    info!("Client added.");
 }

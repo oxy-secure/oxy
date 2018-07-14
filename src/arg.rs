@@ -34,9 +34,28 @@ fn configure_subcommand() -> App<'static, 'static> {
         .subcommand(
             SubCommand::with_name("learn-client")
                 .about("Register a new client that is allowed to connect to this server")
-                .arg(Arg::with_name("name").help("Name for the client"))
-                .arg(Arg::with_name("psk").help("PSK for the client"))
-                .arg(Arg::with_name("pubkey").help("Public key for the client").required(true)),
+                .arg(Arg::with_name("name").long("name").help("Name for the client").takes_value(true))
+                .arg(
+                    Arg::with_name("setuser")
+                        .long("setuser")
+                        .help("Username to drop privileges to for connections with these credentials")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("forcedcommand")
+                        .long("forcedcommand")
+                        .help("Forced command for logins with these credentials")
+                        .takes_value(true),
+                )
+                .arg(Arg::with_name("import-string").long("import-string").takes_value(true).required(true))
+                .arg(&config_server),
+        )
+        .subcommand(
+            SubCommand::with_name("delete-client")
+                .about("Revoke a client key")
+                .arg(Arg::with_name("name").long("name").takes_value(true))
+                .arg(Arg::with_name("pubkey").long("pubkey").takes_value(true))
+                .arg(&config_server),
         )
         .subcommand(
             SubCommand::with_name("learn-server")
@@ -125,8 +144,8 @@ crate fn create_app() -> App<'static, 'static> {
     let config = Arg::with_name("config")
         .long("config")
         .help("Path to configuration file (defaults to ~/.config/oxy/server.conf for servers and ~/.config/oxy/client.conf for clients)");
-    let forced_command = Arg::with_name("forced command")
-        .long("forced-command")
+    let forced_command = Arg::with_name("forcedcommand")
+        .long("forcedcommand")
         .help("Restrict command execution to the specified command")
         .takes_value(true);
     let unsafe_reexec = Arg::with_name("unsafe reexec")
