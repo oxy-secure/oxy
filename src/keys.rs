@@ -74,25 +74,6 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
     result
 }
 
-crate fn knock_port(peer: Option<&str>) -> u16 {
-    trace!("Calculating knock port {:?}", peer);
-    let mut data = knock_data(peer).to_vec();
-    let mut iter_count = 5;
-    let result;
-    loop {
-        let val = byteorder::BE::read_u16(&data[..2]);
-        if val > 1024 {
-            result = val;
-            break;
-        }
-        let old_data = data.clone();
-        iter_count += 1;
-        ring::pbkdf2::derive(&ring::digest::SHA512, iter_count, b"knock", &old_data[..], &mut data[..]);
-    }
-    trace!("Calculated knock port: {:?}", result);
-    result
-}
-
 crate fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
     for name in crate::conf::client_names() {
         let confkey = crate::conf::pubkey_for_client(&name);

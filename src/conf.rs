@@ -466,7 +466,7 @@ crate fn knock_port_for_dest(dest: &str) -> u16 {
     }
 
     if let Some(table) = server(dest) {
-        if let Some(knock_port) = table.get("knock-port") {
+        if let Some(knock_port) = table.get("knock_port") {
             if let Some(knock_port) = knock_port.as_integer() {
                 if let Ok(knock_port) = ::std::convert::TryFrom::try_from(knock_port) {
                     return knock_port;
@@ -477,7 +477,8 @@ crate fn knock_port_for_dest(dest: &str) -> u16 {
         }
     }
 
-    crate::keys::knock_port(Some(dest))
+    error!("Failed to find knock port for {}", dest);
+    ::std::process::exit(1);
 }
 
 crate fn tcp_port_for_dest(dest: &str) -> u16 {
@@ -491,7 +492,7 @@ crate fn tcp_port_for_dest(dest: &str) -> u16 {
     }
 
     if let Some(table) = server(dest) {
-        if let Some(tcp_port) = table.get("tcp-port") {
+        if let Some(tcp_port) = table.get("tcp_port") {
             if let Some(tcp_port) = tcp_port.as_integer() {
                 if let Ok(tcp_port) = ::std::convert::TryFrom::try_from(tcp_port) {
                     return tcp_port;
@@ -517,7 +518,7 @@ crate fn server_knock_port() -> u16 {
 
     if let Some(table) = &CONF.server {
         if let Some(table) = table.as_table() {
-            if let Some(knock_port) = table.get("knock-port") {
+            if let Some(knock_port) = table.get("knock_port") {
                 if let Some(knock_port) = knock_port.as_integer() {
                     if let Ok(knock_port) = ::std::convert::TryFrom::try_from(knock_port) {
                         return knock_port;
@@ -531,7 +532,8 @@ crate fn server_knock_port() -> u16 {
         }
     }
 
-    crate::keys::knock_port(None)
+    error!("No knock port specified.");
+    ::std::process::exit(1);
 }
 
 crate fn server_tcp_port() -> u16 {
@@ -546,7 +548,7 @@ crate fn server_tcp_port() -> u16 {
 
     if let Some(table) = &CONF.server {
         if let Some(table) = table.as_table() {
-            if let Some(tcp_port) = table.get("tcp-port") {
+            if let Some(tcp_port) = table.get("tcp_port") {
                 if let Some(tcp_port) = tcp_port.as_integer() {
                     if let Ok(tcp_port) = ::std::convert::TryFrom::try_from(tcp_port) {
                         return tcp_port;
@@ -644,6 +646,8 @@ crate fn configure() {
         "decrypt-config" => subcommand_decrypt_config(),
         "learn-server" => subcommand_learn_server(),
         "learn-client" => subcommand_learn_client(),
+        "delete-client" => subcommand_delete_client(),
+        "delete-server" => subcommand_delete_server(),
         _ => unimplemented!(),
     }
 }
@@ -655,25 +659,12 @@ fn subcommand_decrypt_config() {
         ::std::process::exit(1);
     }
     let config_path = config_path.unwrap();
-    let config_path = resolve_path(config_path);
-
     let config = load_file(&config_path).map(|x| x.0);
     if config.is_none() {
         error!("Failed to load config.");
         ::std::process::exit(1);
     }
-    let config = ::toml::to_string(&config.unwrap()).unwrap();
-    let file = ::std::fs::File::create(&config_path);
-    if file.is_err() {
-        error!("{:?}", file);
-        ::std::process::exit(1);
-    }
-    let mut file = file.unwrap();
-    let result = ::std::io::Write::write_all(&mut file, config.as_bytes());
-    if result.is_err() {
-        error!("{:?}", result);
-        ::std::process::exit(1);
-    }
+    save_config(&config_path, config.unwrap(), None);
     info!("Config file decrypted successfully");
 }
 
@@ -684,43 +675,10 @@ fn subcommand_encrypt_config() {
         ::std::process::exit(1);
     }
     let config_path = config_path.unwrap();
+    let config = load_file(&config_path).unwrap().0;
+    let passphrase = read_passphrase(&config_path).unwrap();
 
-    let config_path = resolve_path(config_path);
-
-    let file = ::std::fs::File::open(&config_path);
-    if file.is_err() {
-        error!("Failed to open config {:?} for reading: {:?}", config_path, file);
-        ::std::process::exit(1);
-    }
-    let mut file = file.unwrap();
-    let mut buf = Vec::new();
-    let result = ::std::io::Read::read_to_end(&mut file, &mut buf);
-    if result.is_err() {
-        error!("Failed to read config {:?}", result);
-        ::std::process::exit(1);
-    }
-    ::std::mem::drop(file);
-    let input_config: ::toml::Value = ::toml::from_slice(&buf).unwrap();
-    let passphrase = read_passphrase(&config_path);
-    if passphrase.is_err() {
-        error!("{}", passphrase.unwrap_err());
-        ::std::process::exit(1);
-    }
-    let passphrase = passphrase.unwrap();
-
-    let output_config = encrypt_config(input_config, &passphrase);
-
-    let file = ::std::fs::File::create(&config_path);
-    if file.is_err() {
-        error!("Failed to open config for writing: {:?}", file);
-        ::std::process::exit(1);
-    }
-    let mut file = file.unwrap();
-    let result = ::std::io::Write::write_all(&mut file, ::toml::to_string(&output_config).unwrap().as_bytes());
-    if result.is_err() {
-        error!("Failed to write config: {:?}", result);
-        ::std::process::exit(1);
-    }
+    save_config(&config_path, config, Some(passphrase.as_str()));
     info!("Configuration successfully encrypted.");
 }
 
@@ -743,6 +701,32 @@ fn random_port() -> u16 {
             return cur;
         }
     }
+}
+
+fn save_config(path: &str, mut config: ::toml::Value, passphrase: Option<&str>) {
+    if passphrase.is_some() {
+        config = encrypt_config(config, passphrase.unwrap());
+    }
+
+    let path = resolve_path(path);
+    let dir = ::std::path::PathBuf::from(&path);
+    ::std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
+
+    #[cfg(unix)]
+    let file = {
+        let mut open_options = ::std::fs::OpenOptions::new();
+        open_options.create(true).truncate(true).write(true);
+        ::std::os::unix::fs::OpenOptionsExt::mode(&mut open_options, 0o600);
+        open_options.open(&path)
+    };
+    #[cfg(not(unix))]
+    let file = ::std::fs::File::create(&config_path);
+    if file.is_err() {
+        error!("Error opening {} for writing", path);
+        ::std::process::exit(1);
+    }
+    let mut file = file.unwrap();
+    ::std::io::Write::write_all(&mut file, config.to_string().as_bytes()).unwrap();
 }
 
 fn initialize_server() {
@@ -790,31 +774,14 @@ fn initialize_server() {
 
     config.insert("privkey".to_string(), privkey);
 
-    let config: String = ::toml::to_string(&config).unwrap();
+    let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config").unwrap();
 
-    if let Some(config_path) = crate::arg::matches().subcommand().1.unwrap().value_of("config") {
-        let config_path = resolve_path(config_path);
-        match ::std::fs::File::create(&config_path) {
-            Ok(mut file) => {
-                let result = ::std::io::Write::write_all(&mut file, config.as_bytes());
-                match result {
-                    Ok(_) => {
-                        println!("{}", display_config);
-                        println!(
-                            "Import this server into a client using this string: {}",
-                            ::data_encoding::BASE32_NOPAD.encode(&display_config.as_bytes())
-                        );
-                    }
-                    Err(err) => {
-                        error!("Failed to write config file {:?} {:?}", config_path, err);
-                    }
-                }
-            }
-            Err(err) => {
-                error!("Failed to create config file {:?} {:?}", config_path, err);
-            }
-        }
-    }
+    save_config(&config_path, config.into(), None);
+    println!("{}", display_config);
+    println!(
+        "Import this server into a client using this string: {}",
+        ::data_encoding::BASE32_NOPAD.encode(&display_config.as_bytes())
+    );
 }
 
 fn drop_server_named(config: &mut ::toml::Value, name: &str) {
@@ -931,12 +898,7 @@ fn subcommand_learn_server() {
     println!("{}", ::toml::Value::Table(display_config));
     println!("Import this client: {}", export_string);
 
-    if passphrase.is_some() {
-        old_config = encrypt_config(old_config, &passphrase.unwrap());
-    }
-
-    let mut out_file = ::std::fs::File::create(&config_path).unwrap();
-    ::std::io::Write::write_all(&mut out_file, old_config.to_string().as_bytes()).unwrap();
+    save_config(&config_path, old_config, passphrase.as_ref().map(|x| x.as_str()));
 }
 
 fn subcommand_learn_client() {
@@ -951,7 +913,6 @@ fn subcommand_learn_client() {
     }
 
     let config_path = subcommand_matches.value_of("config").unwrap();
-    let config_path = resolve_path(config_path);
     let (mut old_config, passphrase) = load_file(&config_path).unwrap();
     {
         let clients = old_config.as_table_mut().unwrap().entry("clients".to_string());
@@ -962,10 +923,52 @@ fn subcommand_learn_client() {
             .push(import_config);
     }
 
-    if passphrase.is_some() {
-        old_config = encrypt_config(old_config, &passphrase.unwrap());
-    }
-    let mut out_file = ::std::fs::File::create(&config_path).unwrap();
-    ::std::io::Write::write_all(&mut out_file, old_config.to_string().as_bytes()).unwrap();
+    save_config(&config_path, old_config, passphrase.as_ref().map(|x| x.as_str()));
     info!("Client added.");
+}
+
+fn subcommand_delete_client() {
+    subcommand_delete_client_or_server("clients");
+}
+
+fn subcommand_delete_server() {
+    subcommand_delete_client_or_server("servers");
+}
+
+fn subcommand_delete_client_or_server(which: &str) {
+    assert!(["clients", "servers"].contains(&which));
+    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let name = subcommand_matches.value_of("name");
+    let pubkey = subcommand_matches.value_of("pubkey");
+    let config_path = subcommand_matches.value_of("config").unwrap();
+    let (mut old_config, passphrase) = load_file(&config_path).unwrap();
+    let orig_len = old_config
+        .as_table_mut()
+        .unwrap()
+        .get_mut(which)
+        .map(|x| x.as_array().unwrap().len())
+        .unwrap_or(0);
+    if let Some(entries) = old_config.as_table_mut().unwrap().get_mut(which) {
+        if let Some(pubkey) = pubkey {
+            entries
+                .as_array_mut()
+                .unwrap()
+                .retain(|x| x.get("pubkey").is_none() || x.get("pubkey").unwrap().as_str().unwrap() != pubkey);
+        }
+        if let Some(name) = name {
+            entries
+                .as_array_mut()
+                .unwrap()
+                .retain(|x| x.get("name").is_none() || x.get("name").unwrap().as_str().unwrap() != name);
+        }
+    }
+    let new_len = old_config
+        .as_table_mut()
+        .unwrap()
+        .get_mut(which)
+        .map(|x| x.as_array().unwrap().len())
+        .unwrap_or(0);
+    let delta = orig_len.checked_sub(new_len).unwrap();
+    save_config(&config_path, old_config, passphrase.as_ref().map(|x| x.as_str()));
+    info!("Deleted {} {}.", delta, which);
 }

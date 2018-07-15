@@ -58,6 +58,13 @@ fn configure_subcommand() -> App<'static, 'static> {
                 .arg(&config_server),
         )
         .subcommand(
+            SubCommand::with_name("delete-server")
+                .about("Forget about a server")
+                .arg(Arg::with_name("name").long("name").takes_value(true))
+                .arg(Arg::with_name("pubkey").long("pubkey").takes_value(true))
+                .arg(&config_client),
+        )
+        .subcommand(
             SubCommand::with_name("learn-server")
                 .about("Register a new server to connect to.")
                 .arg(

@@ -61,7 +61,7 @@ crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
         let dest = dest.to_string();
         proxy_daemon.clone().push_post_auth_hook(Rc::new(move || {
             let proxy_daemon = proxy_daemon.clone();
-            let knock_port = keys::knock_port(Some(&dest));
+            let knock_port = crate::conf::knock_port_for_dest(&dest);
             let knock_host = crate::conf::host_for_dest(&dest);
             let knock_value = keys::make_knock(Some(&dest));
             let knock_dest = format!("{}:{}", knock_host, knock_port);
