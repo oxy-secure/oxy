@@ -135,5 +135,7 @@ crate fn reverse_client() {
     trace!("Bound");
     let (stream, _) = acceptor.accept().unwrap();
     trace!("Connected");
-    Oxy::run(stream);
+    let peer = Oxy::create(stream);
+    peer.set_peer_name(crate::arg::matches().value_of("peer").unwrap());
+    ::transportation::run();
 }

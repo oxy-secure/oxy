@@ -224,7 +224,8 @@ crate fn create_app() -> App<'static, 'static> {
         SubCommand::with_name("reverse-client")
             .about("Bind a port and wait for a server to connect. Then, be a client.")
             .args(&client_args)
-            .arg(Arg::with_name("bind-address").index(1).default_value("::0")),
+            .arg(Arg::with_name("peer").index(1).required(true))
+            .arg(Arg::with_name("bind-address").long("bind-address").default_value("::0")),
         SubCommand::with_name("copy")
             .about("Copy files from any number of sources to one destination.")
             .arg(config)
