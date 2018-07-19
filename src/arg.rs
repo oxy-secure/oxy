@@ -150,6 +150,7 @@ crate fn create_app() -> App<'static, 'static> {
         .help("Enable trusted X forwarding");
     let config = Arg::with_name("config")
         .long("config")
+        .takes_value(true)
         .help("Path to configuration file (defaults to ~/.config/oxy/server.conf for servers and ~/.config/oxy/client.conf for clients)");
     let forced_command = Arg::with_name("forcedcommand")
         .long("forcedcommand")

@@ -392,6 +392,11 @@ fn fork_and_handle(stream: TcpStream) {
                 args.push(format!("--multiplexer={}", multiplexer));
             }
         }
+        if crate::arg::matches().occurrences_of("config") > 0 {
+            if let Some(config) = crate::arg::matches().value_of("config") {
+                args.push(format!("--config={}", config));
+            }
+        }
         if crate::arg::matches().is_present("no tmux") {
             args.push("--no-tmux".to_string());
         }

@@ -79,6 +79,7 @@ impl Oxy {
 
         if let Some(message) = self.recv_naked() {
             let privkey = crate::keys::get_private_key(None);
+            trace!("Privkey: {:?}", privkey);
             let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk1_25519_AESGCM_SHA512".parse().unwrap())
                 .local_private_key(&privkey[..])
                 .build_responder()
@@ -89,6 +90,7 @@ impl Oxy {
             let peer_public_key = session.get_remote_static().map(|x| x.to_vec());
             if peer_public_key.is_none() {
                 error!("Failed to extract client public key");
+                ::std::process::exit(1);
             }
             let peer_public_key = peer_public_key.unwrap();
 
