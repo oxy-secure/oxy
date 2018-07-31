@@ -23,6 +23,10 @@ mod util;
 use log::{debug, error, info, log, trace, warn};
 
 pub fn run() {
+    #[cfg(not(unix))]
+    {
+        warn!("Running on non-unix platform is currently a 'toy' feature. Many things will be broken and it is not recommended unless you know exactly what you are doing.");
+    }
     #[cfg(unix)]
     {
         if reexec::is_suid() {

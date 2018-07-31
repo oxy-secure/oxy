@@ -34,6 +34,7 @@ struct UiPlatformData {
 }
 
 #[cfg(not(unix))]
+#[derive(Default)]
 struct UiPlatformData {}
 
 impl Ui {
@@ -179,6 +180,10 @@ impl Ui {
         let raw = termion::get_tty().unwrap().into_raw_mode().unwrap();
         self.internal.platform.borrow_mut().raw = Some(raw);
     }
+    #[cfg(not(unix))]
+    fn raw(&self) {
+        unimplemented!();
+    }
 
     #[cfg(unix)]
     fn is_raw(&self) -> bool {
@@ -224,6 +229,12 @@ impl Ui {
         self.send(msg)
     }
 
+    #[cfg(not(unix))]
+    fn spawn_readline_thread(&self) {
+        unimplemented!();
+    }
+
+    #[cfg(unix)]
     fn spawn_readline_thread(&self) {
         if let Some(bt) = self.internal.underlying.borrow_mut().take() {
             bt.detach();

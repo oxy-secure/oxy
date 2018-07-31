@@ -83,20 +83,25 @@ fn encrypt(data: &[u8], passphrase: &str) -> Vec<u8> {
 }
 
 fn read_passphrase(passphrase_for: &str) -> Result<String, String> {
-    use std::io::Write;
-    let mut tty = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
-    let mut tty2 = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
-    let _ = write!(tty, "Please enter passphrase for {}: ", passphrase_for);
-    let passphrase = ::termion::input::TermRead::read_passwd(&mut tty, &mut tty2);
-    let _ = write!(tty, "\n");
-    if passphrase.is_err() {
-        Err("Failed to read passphrase")?;
+    #[cfg(not(unix))]
+    unimplemented!();
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        let mut tty = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
+        let mut tty2 = ::termion::get_tty().map_err(|_| "Failed to acquire TTY")?;
+        let _ = write!(tty, "Please enter passphrase for {}: ", passphrase_for);
+        let passphrase = ::termion::input::TermRead::read_passwd(&mut tty, &mut tty2);
+        let _ = write!(tty, "\n");
+        if passphrase.is_err() {
+            Err("Failed to read passphrase")?;
+        }
+        let passphrase = passphrase.unwrap();
+        if passphrase.is_none() {
+            Err("Failed to read passphrase")?;
+        }
+        Ok(passphrase.unwrap())
     }
-    let passphrase = passphrase.unwrap();
-    if passphrase.is_none() {
-        Err("Failed to read passphrase")?;
-    }
-    Ok(passphrase.unwrap())
 }
 
 fn decrypt_config(input_config: toml::Value, file_path: &str) -> Result<(toml::Value, Option<String>), String> {
@@ -150,15 +155,18 @@ fn toml_from_disk(path: &str) -> Option<toml::Value> {
         return None;
     }
     let mut file = file.unwrap();
-    let permissions = file.metadata().unwrap().permissions();
-    let permissions_mode = ::std::os::unix::fs::PermissionsExt::mode(&permissions);
-    if permissions_mode & 0o077 > 0 {
-        error!(
-            "File permissions on {} are too loose ({:04o}). Please restrict this file to owner-only access.",
-            path,
-            permissions_mode & 0o7777
-        );
-        ::std::process::exit(0);
+    #[cfg(unix)]
+    {
+        let permissions = file.metadata().unwrap().permissions();
+        let permissions_mode = ::std::os::unix::fs::PermissionsExt::mode(&permissions);
+        if permissions_mode & 0o077 > 0 {
+            error!(
+                "File permissions on {} are too loose ({:04o}). Please restrict this file to owner-only access.",
+                path,
+                permissions_mode & 0o7777
+            );
+            ::std::process::exit(0);
+        }
     }
     let mut data = Vec::new();
     let read_result = file.read_to_end(&mut data);
@@ -722,7 +730,7 @@ fn save_config(path: &str, mut config: ::toml::Value, passphrase: Option<&str>) 
         open_options.open(&path)
     };
     #[cfg(not(unix))]
-    let file = ::std::fs::File::create(&config_path);
+    let file = ::std::fs::File::create(&path);
     if file.is_err() {
         error!("Error opening {} for writing", path);
         ::std::process::exit(1);
@@ -802,7 +810,8 @@ fn drop_server_named(config: &mut ::toml::Value, name: &str) {
             .get(i)
             .unwrap()
             .get("name")
-            .map(|x| x.as_str().unwrap()) == Some(name)
+            .map(|x| x.as_str().unwrap())
+            == Some(name)
         {
             config
                 .as_table_mut()
