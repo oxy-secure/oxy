@@ -214,7 +214,6 @@ crate fn create_app() -> App<'static, 'static> {
             .arg(compression)
             .arg(Arg::with_name("location").index(1).multiple(true).number_of_values(1))
             .arg(&verbose),
-        SubCommand::with_name("guide").about("Print information to help a new user get the most out of Oxy."),
         SubCommand::with_name("keygen").about("Generate keys"),
         configure_subcommand(),
     ];

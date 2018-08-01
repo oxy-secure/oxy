@@ -7,7 +7,6 @@ mod conf;
 mod copy;
 mod core;
 mod exit;
-mod guide;
 mod keys;
 mod message;
 #[cfg(unix)]
@@ -35,7 +34,6 @@ pub fn run() {
         "serve-one" => server::serve_one(),
         "reverse-server" => server::reverse_server(),
         "reverse-client" => client::reverse_client(),
-        "guide" => guide::print_guide(),
         "copy" => copy::run(),
         "keygen" => keys::keygen(),
         "configure" => conf::configure(),
