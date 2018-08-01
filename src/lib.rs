@@ -27,19 +27,11 @@ pub fn run() {
     {
         warn!("Running on non-unix platform is currently a 'toy' feature. Many things will be broken and it is not recommended unless you know exactly what you are doing.");
     }
-    #[cfg(unix)]
-    {
-        if reexec::is_suid() {
-            eprintln!("Running oxy suid is currently not supported!");
-            std::process::exit(1);
-        }
-    }
     debug!("Oxy starting");
     arg::process();
     debug!("Args processed");
     match arg::mode().as_str() {
         "client" => client::run(),
-        "reexec" => reexec::run(),
         "server" => server::run(),
         "serve-one" => server::serve_one(),
         "reverse-server" => server::reverse_server(),
