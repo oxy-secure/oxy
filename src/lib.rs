@@ -12,7 +12,6 @@ mod keys;
 mod message;
 #[cfg(unix)]
 mod pty;
-mod reexec;
 mod server;
 #[cfg(unix)]
 mod tuntap;

@@ -288,7 +288,7 @@ fn read_line() -> String {
         return line;
     }
     let reader = reader.unwrap();
-    reader.set_prompt("oxy> ");
+    reader.set_prompt("oxy> ").unwrap();
     let result = reader.read_line();
     match result {
         Ok(::linefeed::reader::ReadResult::Input(result)) => {

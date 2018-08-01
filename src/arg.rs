@@ -1,6 +1,6 @@
 use clap::{crate_authors, crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
 use env_logger;
-use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
+use lazy_static::lazy_static;
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::env;
@@ -25,13 +25,11 @@ fn configure_subcommand() -> App<'static, 'static> {
             SubCommand::with_name("encrypt-config")
                 .about("Protect client keys with a passphrase")
                 .arg(&config_client),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("decrypt-config")
                 .about("Decrypt an encrypted config file")
                 .arg(&config_client),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("learn-client")
                 .about("Register a new client that is allowed to connect to this server")
                 .arg(Arg::with_name("name").long("name").help("Name for the client").takes_value(true))
@@ -40,31 +38,26 @@ fn configure_subcommand() -> App<'static, 'static> {
                         .long("setuser")
                         .help("Username to drop privileges to for connections with these credentials")
                         .takes_value(true),
-                )
-                .arg(
+                ).arg(
                     Arg::with_name("forcedcommand")
                         .long("forcedcommand")
                         .help("Forced command for logins with these credentials")
                         .takes_value(true),
-                )
-                .arg(Arg::with_name("import-string").long("import-string").takes_value(true).required(true))
+                ).arg(Arg::with_name("import-string").long("import-string").takes_value(true).required(true))
                 .arg(&config_server),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("delete-client")
                 .about("Revoke a client key")
                 .arg(Arg::with_name("name").long("name").takes_value(true))
                 .arg(Arg::with_name("pubkey").long("pubkey").takes_value(true))
                 .arg(&config_server),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("delete-server")
                 .about("Forget about a server")
                 .arg(Arg::with_name("name").long("name").takes_value(true))
                 .arg(Arg::with_name("pubkey").long("pubkey").takes_value(true))
                 .arg(&config_client),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("learn-server")
                 .about("Register a new server to connect to.")
                 .arg(
@@ -73,18 +66,15 @@ fn configure_subcommand() -> App<'static, 'static> {
                         .takes_value(true)
                         .help("Name for the server")
                         .required(true),
-                )
-                .arg(
+                ).arg(
                     Arg::with_name("import-string")
                         .long("import-string")
                         .takes_value(true)
                         .help("Server description provided by server initialization.")
                         .required(true),
-                )
-                .arg(Arg::with_name("host").help("IP address or DNS name used for connections. Defaults to the value of \"name\""))
+                ).arg(Arg::with_name("host").help("IP address or DNS name used for connections. Defaults to the value of \"name\""))
                 .arg(&config_client),
-        )
-        .subcommand(
+        ).subcommand(
             SubCommand::with_name("initialize-server")
                 .about("Create an initial server configuration file. (Generates a knock key and long-term server key)")
                 .arg(&config_server)
@@ -156,9 +146,6 @@ crate fn create_app() -> App<'static, 'static> {
         .long("forcedcommand")
         .help("Restrict command execution to the specified command")
         .takes_value(true);
-    let unsafe_reexec = Arg::with_name("unsafe reexec")
-        .long("unsafe-reexec")
-        .help("Bypass safety restrictions intended to avoid privilege elevation");
     let compression = Arg::with_name("compression")
         .short("C")
         .long("compress")
@@ -206,15 +193,9 @@ crate fn create_app() -> App<'static, 'static> {
             .about("Connect to an Oxy server.")
             .args(&client_args)
             .arg(Arg::with_name("destination").index(1).required(true)),
-        SubCommand::with_name("reexec")
-            .about("Service a single oxy connection. Not intended to be run directly, run by oxy server")
-            .setting(AppSettings::Hidden)
-            .arg(Arg::with_name("fd").long("fd").takes_value(true).required(true))
-            .args(&server_args),
         SubCommand::with_name("server")
-            .about("Listen for port knocks, accept TCP connections, then reexec for each one.")
-            .args(&server_args)
-            .arg(unsafe_reexec),
+            .about("Listen for port knocks, accept TCP connections, and fork for each one.")
+            .args(&server_args),
         SubCommand::with_name("serve-one")
             .about("Accept a single TCP connection, then service it in the same process.")
             .args(&server_args),

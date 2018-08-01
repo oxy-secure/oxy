@@ -1,4 +1,4 @@
-use crate::{core::Oxy, reexec::reexec};
+use crate::core::Oxy;
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 #[cfg(unix)]
@@ -58,7 +58,6 @@ impl Server {
     }
 
     fn init(&self) {
-        crate::reexec::safety_check();
         let knock_port = crate::conf::server_knock_port();
         info!("Listening for knocks on port UDP {}", knock_port);
 
@@ -193,10 +192,10 @@ impl Server {
             if self.i.open_knocks.borrow().iter().filter(|x| x.1 == remote_addr.ip()).count() > 0 {
                 info!("Accepting connection for {:?}", remote_addr);
                 if !*self.i.serve_one.borrow() {
-                    fork_and_handle(stream);
+                    self.fork_and_handle(stream);
                 } else {
                     self.destroy();
-                    Oxy::run(stream);
+                    Oxy::create(stream);
                 }
             } else {
                 warn!("TCP connection from somebody who didn't knock: {:?}", remote_addr);
@@ -212,10 +211,10 @@ impl Server {
             if self.i.open_knocks.borrow().iter().filter(|x| x.1 == remote_addr.ip()).count() > 0 {
                 info!("Accepting connection for {:?}", remote_addr);
                 if !*self.i.serve_one.borrow() {
-                    fork_and_handle(stream);
+                    self.fork_and_handle(stream);
                 } else {
                     self.destroy();
-                    Oxy::run(stream);
+                    Oxy::create(stream);
                 }
             } else {
                 warn!("TCP connection from somebody who didn't knock: {:?}", remote_addr);
@@ -360,6 +359,31 @@ impl Server {
         let (size, addr) = result.unwrap();
         self.consider_knock(&buf[..size], addr.ip());
     }
+
+    fn fork_and_handle(&self, stream: TcpStream) {
+        #[cfg(unix)]
+        {
+            use nix::unistd::{fork, ForkResult::*};
+
+            match fork() {
+                Ok(Parent { .. }) => {
+                    return;
+                }
+                Ok(Child) => {
+                    ::transportation::flush();
+                    Oxy::create(stream);
+                }
+                Err(_) => {
+                    panic!("Fork failed");
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // WSADuplicateSocket is an extremely awkward interface...
+            unimplemented!();
+        }
+    }
 }
 
 crate fn serve_one() {
@@ -372,41 +396,4 @@ crate fn reverse_server() {
     let stream = ::std::net::TcpStream::connect(&crate::arg::destination()).unwrap();
     trace!("Connected");
     Oxy::run(stream);
-}
-
-fn fork_and_handle(stream: TcpStream) {
-    #[cfg(unix)]
-    {
-        use nix::unistd::{close, dup};
-        use std::os::unix::io::IntoRawFd;
-        let fd = stream.into_raw_fd();
-        let fd2 = dup(fd).unwrap(); // We do this to clear O_CLOEXEC. It'd be nicer if F_SETFL could clear
-                                    // O_CLOEXEC, but it can't~
-
-        let mut args = vec!["reexec".to_string(), format!("--fd={}", fd2)];
-        if let Some(command) = crate::arg::matches().value_of("forcedcommand") {
-            args.push(format!("--forcedcommand={}", command));
-        }
-        if crate::arg::matches().occurrences_of("multiplexer") > 0 {
-            if let Some(multiplexer) = crate::arg::matches().value_of("multiplexer") {
-                args.push(format!("--multiplexer={}", multiplexer));
-            }
-        }
-        if crate::arg::matches().occurrences_of("config") > 0 {
-            if let Some(config) = crate::arg::matches().value_of("config") {
-                args.push(format!("--config={}", config));
-            }
-        }
-        if crate::arg::matches().is_present("no tmux") {
-            args.push("--no-tmux".to_string());
-        }
-        reexec(&args.iter().map(|x| x.as_str()).collect::<Vec<&str>>()[..]);
-        close(fd).unwrap();
-        close(fd2).unwrap();
-    }
-    #[cfg(not(unix))]
-    {
-        // WSADuplicateSocket is an extremely awkward interface...
-        unimplemented!();
-    }
 }

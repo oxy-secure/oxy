@@ -1,4 +1,4 @@
-use lazy_static::{__lazy_static_create, __lazy_static_internal, lazy_static};
+use lazy_static::lazy_static;
 #[allow(unused_imports)]
 use log::{debug, error, info, log, trace, warn};
 use std::{
@@ -27,7 +27,7 @@ fn load_conf() -> Conf {
     trace!("Loading configuration");
     let mut result = Conf::default();
     match crate::arg::mode().as_str() {
-        "server" | "reexec" | "serve-one" | "reverse-server" => {
+        "server" | "serve-one" | "reverse-server" => {
             result.load_server_conf();
         }
         "client" | "copy" | "reverse-client" => {
@@ -277,7 +277,7 @@ crate fn default_knock() -> Option<Vec<u8>> {
 
 crate fn default_asymmetric_key() -> Option<Vec<u8>> {
     match crate::arg::mode().as_str() {
-        "server" | "reexec" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
+        "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(CONF.server.as_ref()?.as_table()?.get("privkey")?.as_str()?.as_bytes())
             .ok(),
         "client" | "copy" | "reverse-client" => ::data_encoding::BASE32_NOPAD
@@ -289,7 +289,7 @@ crate fn default_asymmetric_key() -> Option<Vec<u8>> {
 
 crate fn peer_asymmetric_key(peer: &str) -> Option<Vec<u8>> {
     match crate::arg::mode().as_str() {
-        "server" | "reexec" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
+        "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(client(peer)?.get("privkey")?.as_str()?.as_bytes())
             .ok(),
         "client" | "copy" | "reverse-client" => ::data_encoding::BASE32_NOPAD
@@ -301,9 +301,7 @@ crate fn peer_asymmetric_key(peer: &str) -> Option<Vec<u8>> {
 
 crate fn peer_static_key(peer: &str) -> Option<Vec<u8>> {
     match crate::arg::mode().as_str() {
-        "server" | "reexec" | "serve-one" | "reverse-server" => {
-            ::data_encoding::BASE32_NOPAD.decode(client(peer)?.get("psk")?.as_str()?.as_bytes()).ok()
-        }
+        "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD.decode(client(peer)?.get("psk")?.as_str()?.as_bytes()).ok(),
         "client" | "copy" | "reverse-client" => ::data_encoding::BASE32_NOPAD.decode(server(peer)?.get("psk")?.as_str()?.as_bytes()).ok(),
         _ => None,
     }
@@ -311,7 +309,7 @@ crate fn peer_static_key(peer: &str) -> Option<Vec<u8>> {
 
 crate fn peer_public_key(peer: &str) -> Option<Vec<u8>> {
     match crate::arg::mode().as_str() {
-        "server" | "reexec" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
+        "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(client(peer)?.get("pubkey")?.as_str()?.as_bytes())
             .ok(),
         "client" | "copy" | "reverse-client" => ::data_encoding::BASE32_NOPAD
@@ -323,7 +321,7 @@ crate fn peer_public_key(peer: &str) -> Option<Vec<u8>> {
 
 crate fn default_static_key() -> Option<Vec<u8>> {
     match crate::arg::mode().as_str() {
-        "server" | "reexec" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
+        "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(CONF.server.as_ref()?.as_table()?.get("psk")?.as_str()?.as_bytes())
             .ok(),
         "client" | "copy" | "reverse-client" => ::data_encoding::BASE32_NOPAD
