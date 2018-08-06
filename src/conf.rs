@@ -63,7 +63,8 @@ fn encrypt(data: &[u8], passphrase: &str) -> Vec<u8> {
     let mut nonce = [0u8; 12];
     ::snow::types::Random::fill_bytes(&mut *rng, &mut nonce);
     ::snow::types::Random::fill_bytes(&mut *rng, &mut salt);
-    let difficulty = (10240u32).to_be().to_bytes();
+    let mut difficulty = [0u8; 4];
+    <::byteorder::BE as ::byteorder::ByteOrder>::write_u32(&mut difficulty, 10240u32);
     let mut key = [0u8; 32];
     ::ring::pbkdf2::derive(&::ring::digest::SHA512, 10240, &salt, passphrase.as_bytes(), &mut key);
     let key = ::ring::aead::SealingKey::new(&::ring::aead::AES_256_GCM, &key).unwrap();
@@ -704,7 +705,7 @@ fn random_port() -> u16 {
     loop {
         let mut buf = [0u8; 2];
         ::snow::types::Random::fill_bytes(&mut *rng, &mut buf);
-        let cur: u16 = u16::from_bytes(buf);
+        let cur: u16 = <::byteorder::NativeEndian as ::byteorder::ByteOrder>::read_u16(&buf);
         if cur > 1024 {
             return cur;
         }
