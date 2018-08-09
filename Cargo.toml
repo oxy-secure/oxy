@@ -1,5 +1,3 @@
-#cargo-features = ["edition"]
-
 [package]
 name = "oxy"
 version = "3.0.0-dev1"
@@ -9,7 +7,6 @@ description = "A security focused remote access tool."
 documentation = "https://oxy-secure.app/doc/oxy/"
 homepage = "https://oxy-secure.app"
 repository = "https://github.com/oxy-secure/oxy"
-#edition = "2018"
 
 [dependencies]
 clap = "2.31"
