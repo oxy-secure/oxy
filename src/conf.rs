@@ -23,7 +23,7 @@ struct Conf {
 fn load_conf() -> Conf {
     trace!("Loading configuration");
     let mut result = Conf::default();
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" | "reverse-server" => {
             result.load_server_conf();
         }
@@ -199,12 +199,12 @@ fn load_file(path: &str) -> Option<(toml::Value, Option<String>)> {
 
 impl Conf {
     fn load_client_conf(&mut self) {
-        let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/client.conf");
+        let path = ::arg::matches().value_of("config").unwrap_or("~/.config/oxy/client.conf");
         self.client = load_file(path).map(|x| x.0);
     }
 
     fn load_server_conf(&mut self) {
-        let path = crate::arg::matches().value_of("config").unwrap_or("~/.config/oxy/server.conf");
+        let path = ::arg::matches().value_of("config").unwrap_or("~/.config/oxy/server.conf");
         let mut result = load_file(path).map(|x| x.0);
 
         let mut name_ticker: u64 = 0;
@@ -257,7 +257,7 @@ pub(crate) fn default_client_knock() -> Option<Vec<u8>> {
 }
 
 pub(crate) fn peer_knock(peer: &str) -> Option<Vec<u8>> {
-    let table = match crate::arg::mode().as_str() {
+    let table = match ::arg::mode().as_str() {
         "server" | "serve-one" => client(peer),
         "client" | "copy" => server(peer),
         _ => None,
@@ -266,7 +266,7 @@ pub(crate) fn peer_knock(peer: &str) -> Option<Vec<u8>> {
 }
 
 pub(crate) fn default_knock() -> Option<Vec<u8>> {
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" => default_server_knock(),
         "client" | "copy" => default_client_knock(),
         _ => None,
@@ -274,7 +274,7 @@ pub(crate) fn default_knock() -> Option<Vec<u8>> {
 }
 
 pub(crate) fn default_asymmetric_key() -> Option<Vec<u8>> {
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(CONF.server.as_ref()?.as_table()?.get("privkey")?.as_str()?.as_bytes())
             .ok(),
@@ -286,7 +286,7 @@ pub(crate) fn default_asymmetric_key() -> Option<Vec<u8>> {
 }
 
 pub(crate) fn peer_asymmetric_key(peer: &str) -> Option<Vec<u8>> {
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(client(peer)?.get("privkey")?.as_str()?.as_bytes())
             .ok(),
@@ -298,7 +298,7 @@ pub(crate) fn peer_asymmetric_key(peer: &str) -> Option<Vec<u8>> {
 }
 
 pub(crate) fn peer_static_key(peer: &str) -> Option<Vec<u8>> {
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD.decode(client(peer)?.get("psk")?.as_str()?.as_bytes()).ok(),
         "client" | "copy" | "reverse-client" => ::data_encoding::BASE32_NOPAD.decode(server(peer)?.get("psk")?.as_str()?.as_bytes()).ok(),
         _ => None,
@@ -306,7 +306,7 @@ pub(crate) fn peer_static_key(peer: &str) -> Option<Vec<u8>> {
 }
 
 pub(crate) fn peer_public_key(peer: &str) -> Option<Vec<u8>> {
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(client(peer)?.get("pubkey")?.as_str()?.as_bytes())
             .ok(),
@@ -318,7 +318,7 @@ pub(crate) fn peer_public_key(peer: &str) -> Option<Vec<u8>> {
 }
 
 pub(crate) fn default_static_key() -> Option<Vec<u8>> {
-    match crate::arg::mode().as_str() {
+    match ::arg::mode().as_str() {
         "server" | "serve-one" | "reverse-server" => ::data_encoding::BASE32_NOPAD
             .decode(CONF.server.as_ref()?.as_table()?.get("psk")?.as_str()?.as_bytes())
             .ok(),
@@ -462,7 +462,7 @@ pub(crate) fn client_names() -> Vec<String> {
 }
 
 pub(crate) fn knock_port_for_dest(dest: &str) -> u16 {
-    if let Some(port) = crate::arg::matches().value_of("knock port") {
+    if let Some(port) = ::arg::matches().value_of("knock port") {
         if let Ok(port) = port.parse() {
             return port;
         } else {
@@ -487,7 +487,7 @@ pub(crate) fn knock_port_for_dest(dest: &str) -> u16 {
 }
 
 pub(crate) fn tcp_port_for_dest(dest: &str) -> u16 {
-    if let Some(port) = crate::arg::matches().value_of("tcp port") {
+    if let Some(port) = ::arg::matches().value_of("tcp port") {
         if let Ok(port) = port.parse() {
             return port;
         } else {
@@ -511,7 +511,7 @@ pub(crate) fn tcp_port_for_dest(dest: &str) -> u16 {
 }
 
 pub(crate) fn server_knock_port() -> u16 {
-    if let Some(port) = crate::arg::matches().value_of("knock port") {
+    if let Some(port) = ::arg::matches().value_of("knock port") {
         if let Ok(port) = port.parse() {
             return port;
         } else {
@@ -540,7 +540,7 @@ pub(crate) fn server_knock_port() -> u16 {
 }
 
 pub(crate) fn server_tcp_port() -> u16 {
-    if let Some(port) = crate::arg::matches().value_of("tcp port") {
+    if let Some(port) = ::arg::matches().value_of("tcp port") {
         if let Ok(port) = port.parse() {
             return port;
         } else {
@@ -609,8 +609,8 @@ pub(crate) fn multiplexer(peer: Option<&str>) -> Option<String> {
 }
 
 pub(crate) fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Option<String> {
-    if crate::arg::matches().occurrences_of(arg) > 0 {
-        let setting = crate::arg::matches().value_of(arg);
+    if ::arg::matches().occurrences_of(arg) > 0 {
+        let setting = ::arg::matches().value_of(arg);
         if setting.is_some() {
             return Some(setting.unwrap().to_string());
         }
@@ -637,11 +637,11 @@ pub(crate) fn serverside_setting(peer: Option<&str>, arg: &str, key: &str) -> Op
         }
     }
 
-    crate::arg::matches().value_of(arg).map(|x| x.to_string())
+    ::arg::matches().value_of(arg).map(|x| x.to_string())
 }
 
 pub(crate) fn configure() {
-    let subcommand = crate::arg::matches().subcommand_name().unwrap().to_string();
+    let subcommand = ::arg::matches().subcommand_name().unwrap().to_string();
     match subcommand.as_str() {
         "initialize-server" => initialize_server(),
         "encrypt-config" => subcommand_encrypt_config(),
@@ -655,7 +655,7 @@ pub(crate) fn configure() {
 }
 
 fn subcommand_decrypt_config() {
-    let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config");
+    let config_path = ::arg::matches().subcommand().1.unwrap().value_of("config");
     if config_path.is_none() {
         error!("No config path specified");
         ::std::process::exit(1);
@@ -671,7 +671,7 @@ fn subcommand_decrypt_config() {
 }
 
 fn subcommand_encrypt_config() {
-    let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config");
+    let config_path = ::arg::matches().subcommand().1.unwrap().value_of("config");
     if config_path.is_none() {
         error!("No config path specified");
         ::std::process::exit(1);
@@ -741,8 +741,8 @@ fn initialize_server() {
     let mut knock = [0u8; 32];
     ::snow::types::Random::fill_bytes(&mut *rng, &mut knock);
 
-    let tcp_port = crate::arg::matches().subcommand().1.unwrap().value_of("tcp-port").unwrap_or("0");
-    let knock_port = crate::arg::matches().subcommand().1.unwrap().value_of("knock-port").unwrap_or("0");
+    let tcp_port = ::arg::matches().subcommand().1.unwrap().value_of("tcp-port").unwrap_or("0");
+    let knock_port = ::arg::matches().subcommand().1.unwrap().value_of("knock-port").unwrap_or("0");
     let tcp_port = tcp_port.parse::<u16>();
     let knock_port = knock_port.parse::<u16>();
     if tcp_port.is_err() {
@@ -776,7 +776,7 @@ fn initialize_server() {
 
     config.insert("privkey".to_string(), privkey);
 
-    let config_path = crate::arg::matches().subcommand().1.unwrap().value_of("config").unwrap();
+    let config_path = ::arg::matches().subcommand().1.unwrap().value_of("config").unwrap();
 
     save_config(&config_path, config.into(), None);
     println!("{}", display_config);
@@ -820,7 +820,7 @@ fn drop_server_named(config: &mut ::toml::Value, name: &str) {
 }
 
 fn load_import_config() -> ::toml::Value {
-    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let subcommand_matches = ::arg::matches().subcommand().1.unwrap();
     let import_string = subcommand_matches.value_of("import-string").unwrap();
     let import_config = ::data_encoding::BASE32_NOPAD.decode(import_string.as_bytes());
     if import_config.is_err() {
@@ -838,7 +838,7 @@ fn load_import_config() -> ::toml::Value {
 }
 
 fn subcommand_learn_server() {
-    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let subcommand_matches = ::arg::matches().subcommand().1.unwrap();
     let name = subcommand_matches.value_of("name").unwrap();
     let mut import_config = load_import_config();
 
@@ -905,7 +905,7 @@ fn subcommand_learn_server() {
 }
 
 fn subcommand_learn_client() {
-    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let subcommand_matches = ::arg::matches().subcommand().1.unwrap();
     let mut import_config = load_import_config();
 
     for field in &["name", "setuser", "forcedcommand"] {
@@ -940,7 +940,7 @@ fn subcommand_delete_server() {
 
 fn subcommand_delete_client_or_server(which: &str) {
     assert!(["clients", "servers"].contains(&which));
-    let subcommand_matches = crate::arg::matches().subcommand().1.unwrap();
+    let subcommand_matches = ::arg::matches().subcommand().1.unwrap();
     let name = subcommand_matches.value_of("name");
     let pubkey = subcommand_matches.value_of("pubkey");
     let config_path = subcommand_matches.value_of("config").unwrap();

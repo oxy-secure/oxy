@@ -1,6 +1,6 @@
 use super::{Oxy, PortStream};
 use byteorder::ByteOrder;
-use crate::message::OxyMessage::*;
+use ::message::OxyMessage::*;
 use std::{cell::RefCell, rc::Rc};
 use transportation::{mio::net::TcpListener, BufferedTransport, Notifiable, Notifies};
 

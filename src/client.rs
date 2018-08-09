@@ -1,4 +1,4 @@
-use crate::{arg, core::Oxy, keys};
+use ::{arg, core::Oxy, keys};
 use std::{
     net::{TcpListener, TcpStream, UdpSocket},
     rc::Rc,
@@ -6,8 +6,8 @@ use std::{
 use transportation;
 
 pub(crate) fn knock(peer: &str) {
-    let destinations = crate::conf::locate_destination(peer);
-    let port = crate::conf::knock_port_for_dest(peer);
+    let destinations = ::conf::locate_destination(peer);
+    let port = ::conf::knock_port_for_dest(peer);
     if destinations.is_empty() {
         error!("Failed to resolve {:?}", peer);
         ::std::process::exit(1);
@@ -29,7 +29,7 @@ pub(crate) fn knock(peer: &str) {
 }
 
 pub(crate) fn run() {
-    if let Some(hops) = crate::arg::matches().values_of("via") {
+    if let Some(hops) = ::arg::matches().values_of("via") {
         let mut prev = None;
         for hop in hops.into_iter().rev() {
             if prev.is_none() {
@@ -38,7 +38,7 @@ pub(crate) fn run() {
             }
             prev = Some(connect_via(prev.take().unwrap(), hop));
         }
-        connect_via(prev.take().unwrap(), &crate::arg::destination());
+        connect_via(prev.take().unwrap(), &::arg::destination());
         transportation::run();
     }
     connect(&arg::destination());
@@ -49,7 +49,7 @@ pub(crate) fn run() {
 pub(crate) fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
     #[cfg(unix)]
     {
-        use crate::message::OxyMessage::*;
+        use ::message::OxyMessage::*;
         use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
         use transportation::BufferedTransport;
         let (socka, sockb) = socketpair(AddressFamily::Unix, SockType::Stream, None, SockFlag::empty()).unwrap();
@@ -59,8 +59,8 @@ pub(crate) fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
         let dest = dest.to_string();
         proxy_daemon.clone().push_post_auth_hook(Rc::new(move || {
             let proxy_daemon = proxy_daemon.clone();
-            let knock_port = crate::conf::knock_port_for_dest(&dest);
-            let knock_host = crate::conf::host_for_dest(&dest);
+            let knock_port = ::conf::knock_port_for_dest(&dest);
+            let knock_host = ::conf::host_for_dest(&dest);
             let knock_value = keys::make_knock(Some(&dest));
             let knock_dest = format!("{}:{}", knock_host, knock_port);
             proxy_daemon.send(KnockForward {
@@ -68,7 +68,7 @@ pub(crate) fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
                 knock:       knock_value,
             });
             let stream_number = proxy_daemon.send(RemoteOpen {
-                addr: crate::conf::canonicalize_destination(&dest),
+                addr: ::conf::canonicalize_destination(&dest),
             });
             let bt = bt.clone();
             let bt2 = bt.clone();
@@ -116,7 +116,7 @@ pub(crate) fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
 
 pub(crate) fn connect(destination: &str) -> Oxy {
     knock(destination);
-    let destinations = crate::conf::locate_destination(destination);
+    let destinations = ::conf::locate_destination(destination);
     let stream = TcpStream::connect(&destinations[..]);
     if stream.is_err() {
         error!("Connection to {} failed: {:?}", destination, stream);
@@ -134,6 +134,6 @@ pub(crate) fn reverse_client() {
     let (stream, _) = acceptor.accept().unwrap();
     trace!("Connected");
     let peer = Oxy::create(stream);
-    peer.set_peer_name(crate::arg::matches().value_of("peer").unwrap());
+    peer.set_peer_name(::arg::matches().value_of("peer").unwrap());
     ::transportation::run();
 }

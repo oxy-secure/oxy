@@ -1,9 +1,9 @@
 use super::{PortBind, PortStream};
 #[cfg(unix)]
-use crate::pty::Pty;
+use ::pty::Pty;
 #[cfg(unix)]
-use crate::tuntap::{TunTap, TunTapType};
-use crate::{
+use ::tuntap::{TunTap, TunTapType};
+use ::{
     core::Oxy,
     message::OxyMessage::{self, *},
 };
@@ -79,7 +79,7 @@ impl Oxy {
                 *self.internal.last_message_seen.borrow_mut() = Some(Instant::now());
             }
             Exit {} => {
-                crate::exit::exit(0);
+                ::exit::exit(0);
             }
             UsernameAdvertisement { username } => {
                 self.server_only();
@@ -220,7 +220,7 @@ impl Oxy {
                 // This is crude and temporary
                 // It'd be nice to like... check if we're actually waiting on a pipecommand/if
                 // we're doing anything else also
-                crate::exit::exit(0);
+                ::exit::exit(0);
             }
             #[cfg(unix)]
             PtyRequest { command } => {

@@ -1,7 +1,7 @@
 use clap::{self, App, AppSettings, Arg, SubCommand};
 #[cfg(unix)]
-use crate::tuntap::{TunTap, TunTapType};
-use crate::{
+use ::tuntap::{TunTap, TunTapType};
+use ::{
     core::{
         socks::{SocksBind, SocksBindNotificationProxy},
         Oxy, PortBind,

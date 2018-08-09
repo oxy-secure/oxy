@@ -14,15 +14,15 @@ impl OxyArg {
     }
 
     pub(crate) fn make_matches(mut args: Vec<String>) -> ArgMatches<'static> {
-        if let Ok(matches) = crate::arg::create_app().get_matches_from_safe(&args) {
+        if let Ok(matches) = ::arg::create_app().get_matches_from_safe(&args) {
             return matches;
         }
         trace!("Trying implicit 'client'");
         args.insert(1, "client".to_string());
-        if let Ok(matches) = crate::arg::create_app().get_matches_from_safe(&args) {
+        if let Ok(matches) = ::arg::create_app().get_matches_from_safe(&args) {
             return matches;
         }
-        crate::arg::create_app().get_matches_from(&args)
+        ::arg::create_app().get_matches_from(&args)
     }
 
     pub(crate) fn mode(&self) -> String {

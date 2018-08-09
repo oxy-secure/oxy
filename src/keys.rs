@@ -10,7 +10,7 @@ lazy_static! {
 const KNOCK_ROTATION_TIME: u64 = 60;
 
 pub(crate) fn get_static_key(peer: Option<&str>) -> Vec<u8> {
-    if let Some(key) = crate::conf::static_key(peer) {
+    if let Some(key) = ::conf::static_key(peer) {
         return key;
     }
     error!("No PSK found");
@@ -19,11 +19,11 @@ pub(crate) fn get_static_key(peer: Option<&str>) -> Vec<u8> {
 
 pub(crate) fn knock_data(peer: Option<&str>) -> Vec<u8> {
     if let Some(peer) = peer {
-        if let Some(data) = crate::conf::peer_knock(peer) {
+        if let Some(data) = ::conf::peer_knock(peer) {
             return data;
         }
     }
-    if let Some(data) = crate::conf::default_knock() {
+    if let Some(data) = ::conf::default_knock() {
         return data;
     }
     error!("No knock key found");
@@ -72,8 +72,8 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
 }
 
 pub(crate) fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
-    for name in crate::conf::client_names() {
-        let confkey = crate::conf::pubkey_for_client(&name);
+    for name in ::conf::client_names() {
+        let confkey = ::conf::pubkey_for_client(&name);
         if confkey.is_some() && &confkey.unwrap()[..] == key {
             debug!("Found peer name: {:?}", name);
             return Some(name);
@@ -83,7 +83,7 @@ pub(crate) fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
 }
 
 pub(crate) fn get_private_key(peer: Option<&str>) -> Vec<u8> {
-    if let Some(key) = crate::conf::asymmetric_key(peer) {
+    if let Some(key) = ::conf::asymmetric_key(peer) {
         debug!("Found key in config");
         return key;
     }

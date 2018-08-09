@@ -80,8 +80,8 @@ impl Ui {
                 .as_ref()
                 .map(|x| x.elapsed().as_secs())
                 .unwrap_or(0);
-            let throughput = crate::util::format_throughput(bytes, seconds);
-            let bytes = crate::util::format_bytes(bytes);
+            let throughput = ::util::format_throughput(bytes, seconds);
+            let bytes = ::util::format_bytes(bytes);
             let line1 = format!("{}.{}%, {}, {}s, throughput: {}", percentage, decimal, bytes, seconds, throughput);
             let barwidth: u64 = (width * percentage) / 100;
             let mut x = "=".repeat(barwidth as usize);
@@ -315,7 +315,7 @@ impl Notifiable for Ui {
                 return;
             }
             if data[..] == f12[..] {
-                ::crate::exit::exit(0);
+                ::exit::exit(0);
             }
             if data[..] == enter[..] {
                 *self.internal.escapestate.borrow_mut() = 1;
@@ -330,7 +330,7 @@ impl Notifiable for Ui {
                     self.cooked();
                     return;
                 } else if cur == 2 && data[..] == dot[..] {
-                    ::crate::exit::exit(0);
+                    ::exit::exit(0);
                 } else if cur == 2 {
                     let mut data2 = tilde.to_vec();
                     data2.extend(data);

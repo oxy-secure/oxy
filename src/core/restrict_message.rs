@@ -1,4 +1,4 @@
-use crate::{
+use ::{
     core::Oxy,
     message::OxyMessage::{self, *},
 };
@@ -20,7 +20,7 @@ impl Oxy {
     }
 
     fn restrict_forcedcommand(&self, message: OxyMessage) -> Result<OxyMessage, ()> {
-        let forced_command = crate::conf::forced_command(self.peer().as_ref().map(|x| x.as_str()));
+        let forced_command = ::conf::forced_command(self.peer().as_ref().map(|x| x.as_str()));
         if forced_command.is_none() {
             return Ok(message);
         }

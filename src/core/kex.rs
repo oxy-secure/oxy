@@ -1,13 +1,13 @@
-use crate::core::Oxy;
+use ::core::Oxy;
 
 impl Oxy {
     pub(super) fn advertise_client_key(&self) {
         let peer_name = self.internal.peer_name.borrow().clone();
         let peer_name2 = peer_name.as_ref().map(|x| x.as_str());
         trace!("Peer name: {:?}", peer_name);
-        let privkey = crate::keys::get_private_key(peer_name2);
-        let psk = crate::keys::get_static_key(peer_name2);
-        let peer_public_key = crate::conf::public_key(peer_name2);
+        let privkey = ::keys::get_private_key(peer_name2);
+        let psk = ::keys::get_static_key(peer_name2);
+        let peer_public_key = ::conf::public_key(peer_name2);
         if peer_public_key.is_none() {
             error!("No peer public key found.");
             ::std::process::exit(1);
@@ -76,7 +76,7 @@ impl Oxy {
         self.check_hangup();
 
         if let Some(message) = self.recv_naked() {
-            let privkey = crate::keys::get_private_key(None);
+            let privkey = ::keys::get_private_key(None);
             trace!("Privkey: {:?}", privkey);
             let mut session = ::snow::NoiseBuilder::new("Noise_IKpsk1_25519_AESGCM_SHA512".parse().unwrap())
                 .local_private_key(&privkey[..])
@@ -92,7 +92,7 @@ impl Oxy {
             }
             let peer_public_key = peer_public_key.unwrap();
 
-            let peer = crate::keys::get_peer_for_public_key(&peer_public_key[..]);
+            let peer = ::keys::get_peer_for_public_key(&peer_public_key[..]);
             if peer.is_none() {
                 error!(
                     "Rejecting connection for unknown public key: {:?}",
@@ -101,7 +101,7 @@ impl Oxy {
                 ::std::process::exit(1);
             }
 
-            let psk = crate::conf::peer_static_key(peer.as_ref().unwrap().as_str());
+            let psk = ::conf::peer_static_key(peer.as_ref().unwrap().as_str());
             if psk.is_none() {
                 error!("Failed to locate PSK for peer {:?}", peer);
                 ::std::process::exit(1);

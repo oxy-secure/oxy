@@ -1,5 +1,5 @@
 use byteorder::{self, ByteOrder};
-use crate::core::Oxy;
+use ::core::Oxy;
 use libc::{c_ulong, ioctl};
 use nix::{
     errno::{errno, Errno},

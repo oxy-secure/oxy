@@ -6,10 +6,10 @@ mod restrict_message;
 mod socks;
 
 #[cfg(unix)]
-use crate::pty::Pty;
+use ::pty::Pty;
 #[cfg(unix)]
-use crate::tuntap::TunTap;
-use crate::{
+use ::tuntap::TunTap;
+use ::{
     arg,
     message::OxyMessage::{self, *},
     ui::Ui,
@@ -114,7 +114,7 @@ impl Oxy {
         let internal = OxyInternal::default();
         *internal.naked_transport.borrow_mut() = Some(bt);
         *internal.last_message_seen.borrow_mut() = Some(Instant::now());
-        *internal.is_server.borrow_mut() = ["server", "serve-one", "reexec", "reverse-server"].contains(&crate::arg::mode().as_str());
+        *internal.is_server.borrow_mut() = ["server", "serve-one", "reexec", "reverse-server"].contains(&::arg::mode().as_str());
         let x = Oxy { internal: Rc::new(internal) };
         let y = x.clone();
         set_timeout(Rc::new(move || y.notify_keepalive()), Duration::from_secs(60));
@@ -185,7 +185,7 @@ impl Oxy {
         #[cfg(unix)]
         {
             let proxy = self.clone();
-            crate::exit::push_hook(move || {
+            ::exit::push_hook(move || {
                 if let Some(x) = proxy.internal.ui.borrow_mut().as_ref() {
                     x.cooked()
                 };
@@ -228,7 +228,7 @@ impl Oxy {
         trace!("Sending message {}: {:?}", message_number, message);
         if !self.is_encrypted() {
             error!("Attempted to send protocol message before key-exchange completed.");
-            crate::exit::exit(1);
+            ::exit::exit(1);
         }
         let serialized: Vec<u8> = serialize(message);
         let compressed: Vec<u8> = if *self.internal.outbound_compression.borrow() {
@@ -351,7 +351,7 @@ impl Oxy {
     }
 
     fn notify_ui(&self) {
-        use crate::ui::UiMessage::*;
+        use ::ui::UiMessage::*;
         while let Some(msg) = self.internal.ui.borrow().as_ref().unwrap().recv() {
             match msg {
                 MetaCommand { parts } => {
@@ -604,12 +604,12 @@ impl Oxy {
                             });
                         }
                         let mut cmd = vec!["pty".to_string(), "--".to_string()];
-                        if let Some(command) = crate::arg::matches().values_of("command") {
+                        if let Some(command) = ::arg::matches().values_of("command") {
                             cmd.extend(command.map(|x| x.to_string()));
                         }
                         self.handle_metacommand(cmd);
                     } else {
-                        if let Some(cmd) = crate::arg::matches().values_of("command") {
+                        if let Some(cmd) = ::arg::matches().values_of("command") {
                             let stdin_bt = BufferedTransport::from(0);
                             let proxy = self.clone();
                             stdin_bt.set_notify(Rc::new(move || {
@@ -635,10 +635,10 @@ impl Oxy {
     }
 
     fn activate_compression(&self) {
-        if crate::arg::matches().is_present("compression") {
+        if ::arg::matches().is_present("compression") {
             // This v is intended to block compression for via forwarders, because they'll
             // just be handling encrypted data, which isn't very compressible
-            if !*self.internal.is_daemon.borrow() || crate::arg::mode() == "copy" {
+            if !*self.internal.is_daemon.borrow() || ::arg::mode() == "copy" {
                 self.send(CompressionRequest { compression_type: 0 });
             }
         }
@@ -776,7 +776,7 @@ impl Oxy {
     }
 
     fn exit(&self, status: i32) -> ! {
-        crate::exit::exit(status);
+        ::exit::exit(status);
     }
 
     pub fn watch(&self, callback: Rc<dyn Fn(&OxyMessage, u64) -> bool>) {
@@ -791,7 +791,7 @@ impl Oxy {
         if self.internal.naked_transport.borrow().as_ref().unwrap().is_closed() {
             eprint!("\n\r");
             self.log_info("Connection loss detected.");
-            crate::exit::exit(0);
+            ::exit::exit(0);
         }
         loop {
             let message = self.recv();

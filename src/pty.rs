@@ -17,7 +17,7 @@ pub(crate) struct Pty {
 }
 
 fn multiplexer_available(peer: Option<&str>) -> bool {
-    let command = crate::conf::multiplexer(peer);
+    let command = ::conf::multiplexer(peer);
     if command.is_none() {
         return false;
     }
@@ -56,12 +56,12 @@ impl Pty {
             }
             argv = argv2.into_iter().map(|x| x.unwrap()).collect();
         } else {
-            if !crate::arg::matches().is_present("no tmux") && multiplexer_available(peer) {
-                let command = ::shlex::split(&crate::conf::multiplexer(peer).unwrap()).unwrap();
+            if !::arg::matches().is_present("no tmux") && multiplexer_available(peer) {
+                let command = ::shlex::split(&::conf::multiplexer(peer).unwrap()).unwrap();
                 argv = command.into_iter().map(|x| CString::new(x).unwrap()).collect();
                 exe = argv[0].clone();
             } else {
-                let shell = crate::util::current_user_pw();
+                let shell = ::util::current_user_pw();
                 if shell.is_err() {
                     error!("Failed to get user shell.");
                     ::std::process::exit(1);

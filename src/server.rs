@@ -1,4 +1,4 @@
-use crate::core::Oxy;
+use ::core::Oxy;
 #[cfg(unix)]
 use nix::{
     errno::Errno::ECHILD,
@@ -56,7 +56,7 @@ impl Server {
     }
 
     fn init(&self) {
-        let knock_port = crate::conf::server_knock_port();
+        let knock_port = ::conf::server_knock_port();
         info!("Listening for knocks on port UDP {}", knock_port);
 
         {
@@ -228,7 +228,7 @@ impl Server {
     }
 
     fn bind_tcp4(&self) {
-        let port = crate::conf::server_tcp_port();
+        let port = ::conf::server_tcp_port();
         let bind_addr = format!("0.0.0.0:{}", port).parse().unwrap();
         if let Ok(listener) = TcpListener::bind(&bind_addr) {
             let proxy = self.clone();
@@ -251,7 +251,7 @@ impl Server {
     }
 
     fn bind_tcp6(&self) {
-        let port = crate::conf::server_tcp_port();
+        let port = ::conf::server_tcp_port();
         let bind_addr = format!("[::]:{}", port).parse().unwrap();
         match TcpListener::bind(&bind_addr) {
             Ok(listener) => {
@@ -318,7 +318,7 @@ impl Server {
     }
 
     fn consider_knock(&self, knock_data: &[u8], ip: IpAddr) {
-        if crate::keys::verify_knock(None, knock_data) {
+        if ::keys::verify_knock(None, knock_data) {
             info!("Accepted knock from {:?}", ip);
             if self.i.open_knocks.borrow().len() < 1000 {
                 self.i.open_knocks.borrow_mut().push((Instant::now(), ip));
@@ -391,7 +391,7 @@ pub(crate) fn serve_one() {
 }
 
 pub(crate) fn reverse_server() {
-    let stream = ::std::net::TcpStream::connect(&crate::arg::destination()).unwrap();
+    let stream = ::std::net::TcpStream::connect(&::arg::destination()).unwrap();
     trace!("Connected");
     Oxy::run(stream);
 }

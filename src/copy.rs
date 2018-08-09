@@ -1,4 +1,4 @@
-use crate::{client, core::Oxy, message::OxyMessage::*};
+use ::{client, core::Oxy, message::OxyMessage::*};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -43,7 +43,7 @@ impl CopyManager {
 
     fn init(&self) {
         *self.i.progress.borrow_mut() = 1001;
-        let mut locations: Vec<String> = crate::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
+        let mut locations: Vec<String> = ::arg::matches().values_of("location").unwrap().map(|x| x.to_string()).collect();
         if locations.len() < 2 {
             error!("Must provide at least two locations (a source and a destination)");
             ::std::process::exit(1);
@@ -92,11 +92,11 @@ impl CopyManager {
         let total_seconds = self.i.throughput_total_time.borrow_mut().map(|x| x.elapsed().as_secs()).unwrap_or(0);
         *self.i.throughput_total.borrow_mut() += bytes;
         let total_bytes = *self.i.throughput_total.borrow();
-        let throughput = crate::util::format_throughput(total_bytes, total_seconds);
+        let throughput = ::util::format_throughput(total_bytes, total_seconds);
 
         let percentage = progress / 10;
         let decimal = progress % 10;
-        let total_bytes = crate::util::format_bytes(total_bytes);
+        let total_bytes = ::util::format_bytes(total_bytes);
         let line1 = format!(
             "Transferring: {:?} Transferred: {}.{}%, Total Bytes: {}, Total Seconds: {}, Throughput: {}",
             filename, percentage, decimal, total_bytes, total_seconds, throughput

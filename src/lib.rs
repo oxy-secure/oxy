@@ -1,5 +1,3 @@
-#![feature(crate_in_paths)]
-
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -66,4 +64,4 @@ pub fn run() {
 }
 
 // Reexports:
-pub use crate::core::Oxy;
+pub use ::core::Oxy;

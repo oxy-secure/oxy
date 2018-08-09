@@ -1,4 +1,4 @@
-use crate::core::Oxy;
+use ::core::Oxy;
 use std::ffi::CString;
 
 impl Oxy {
@@ -14,14 +14,14 @@ impl Oxy {
         }
         let peer = self.internal.peer_name.borrow().clone();
         if let Some(peer) = peer {
-            let setuser = crate::conf::get_setuser(&peer);
+            let setuser = ::conf::get_setuser(&peer);
             if let Some(setuser) = setuser {
                 #[cfg(not(unix))]
                 unimplemented!();
                 #[cfg(unix)]
                 {
                     info!("Setting user: {}", setuser);
-                    let pwent = crate::util::getpwnam(&setuser);
+                    let pwent = ::util::getpwnam(&setuser);
                     if pwent.is_err() {
                         error!("Failed to gather user information for {}", setuser);
                         ::std::process::exit(1);

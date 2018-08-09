@@ -1,3 +1,6 @@
+extern crate data_encoding;
+extern crate snow;
+
 fn bin_path() -> String {
     "target/debug/oxy".to_string()
 }
