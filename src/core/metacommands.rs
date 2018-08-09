@@ -8,8 +8,6 @@ use crate::{
     },
     message::OxyMessage::*,
 };
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use num;
 use std::{
     cell::RefCell,
@@ -54,8 +52,7 @@ fn create_app() -> App<'static, 'static> {
                  Creates the tap devices if both the local and remote are root, but \
                  it's better to create the devices, beforehand with 'ip tuntap create \
                  mode tun user youruser'",
-            )
-            .arg(Arg::with_name("local tun").index(1))
+            ).arg(Arg::with_name("local tun").index(1))
             .arg(Arg::with_name("remote tun").index(2)),
         SubCommand::with_name("tap")
             .about("Bridge two tap devices.")
@@ -68,14 +65,12 @@ fn create_app() -> App<'static, 'static> {
             .about(
                 "Open a remote PTY. \
                  Happens by default, usually not necessary",
-            )
-            .arg(Arg::with_name("command").index(1).multiple(true)),
+            ).arg(Arg::with_name("command").index(1).multiple(true)),
         SubCommand::with_name("sh")
             .about(
                 "Run a remote basic-command. \
                  Useful for Windows servers.",
-            )
-            .arg(Arg::with_name("command").index(1).multiple(true)),
+            ).arg(Arg::with_name("command").index(1).multiple(true)),
         SubCommand::with_name("exit").about("Exits the Oxy client.").alias("quit"),
         SubCommand::with_name("f10").about("Send F10 to the remote"),
         SubCommand::with_name("f12").about("Send F12 to the remote"),
@@ -167,7 +162,7 @@ fn preprocess_parts(mut parts: Vec<String>) -> Vec<String> {
 }
 
 impl Oxy {
-    crate fn handle_metacommand(&self, parts: Vec<String>) {
+    pub(crate) fn handle_metacommand(&self, parts: Vec<String>) {
         let parts = preprocess_parts(parts);
         let matches = create_app().get_matches_from_safe(parts.clone());
         match matches {

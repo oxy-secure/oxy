@@ -1,7 +1,4 @@
 use byteorder::{self, ByteOrder};
-use lazy_static::lazy_static;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use std::time::UNIX_EPOCH;
 
 use parking_lot::Mutex;
@@ -12,7 +9,7 @@ lazy_static! {
 
 const KNOCK_ROTATION_TIME: u64 = 60;
 
-crate fn get_static_key(peer: Option<&str>) -> Vec<u8> {
+pub(crate) fn get_static_key(peer: Option<&str>) -> Vec<u8> {
     if let Some(key) = crate::conf::static_key(peer) {
         return key;
     }
@@ -20,7 +17,7 @@ crate fn get_static_key(peer: Option<&str>) -> Vec<u8> {
     ::std::process::exit(1);
 }
 
-crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
+pub(crate) fn knock_data(peer: Option<&str>) -> Vec<u8> {
     if let Some(peer) = peer {
         if let Some(data) = crate::conf::peer_knock(peer) {
             return data;
@@ -33,12 +30,12 @@ crate fn knock_data(peer: Option<&str>) -> Vec<u8> {
     ::std::process::exit(1);
 }
 
-crate fn make_knock(peer: Option<&str>) -> Vec<u8> {
+pub(crate) fn make_knock(peer: Option<&str>) -> Vec<u8> {
     trace!("Calculating knock value {:?}", peer);
     make_knock_internal(peer, 0, 0)
 }
 
-crate fn verify_knock(peer: Option<&str>, knock: &[u8]) -> bool {
+pub(crate) fn verify_knock(peer: Option<&str>, knock: &[u8]) -> bool {
     let c = make_knock_internal(peer, 0, KNOCK_ROTATION_TIME);
     let a = make_knock_internal(peer, 0, 0);
     let b = make_knock_internal(peer, KNOCK_ROTATION_TIME, 0);
@@ -66,7 +63,7 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
     let mut input = knock_data(peer).to_vec();
     trace!("Using knock_data: {:?}", input);
     input.extend(&timebytes2);
-    ring::pbkdf2::derive(&ring::digest::SHA512, 1024, b"timeknock", &input[..], &mut result[..]);
+    ::ring::pbkdf2::derive(&::ring::digest::SHA512, 1024, b"timeknock", &input[..], &mut result[..]);
     KNOCK_VALUES.lock().push((timebytes, peer.map(|x| x.to_string()), result.clone()));
     if KNOCK_VALUES.lock().len() > 100 {
         KNOCK_VALUES.lock().remove(0);
@@ -74,7 +71,7 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
     result
 }
 
-crate fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
+pub(crate) fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
     for name in crate::conf::client_names() {
         let confkey = crate::conf::pubkey_for_client(&name);
         if confkey.is_some() && &confkey.unwrap()[..] == key {
@@ -85,7 +82,7 @@ crate fn get_peer_for_public_key(key: &[u8]) -> Option<String> {
     None
 }
 
-crate fn get_private_key(peer: Option<&str>) -> Vec<u8> {
+pub(crate) fn get_private_key(peer: Option<&str>) -> Vec<u8> {
     if let Some(key) = crate::conf::asymmetric_key(peer) {
         debug!("Found key in config");
         return key;
@@ -94,7 +91,7 @@ crate fn get_private_key(peer: Option<&str>) -> Vec<u8> {
     ::std::process::exit(1);
 }
 
-crate fn keygen() {
+pub(crate) fn keygen() {
     let mut dh = ::snow::CryptoResolver::resolve_dh(&::snow::DefaultResolver, &::snow::params::DHChoice::Curve25519).unwrap();
     let mut rng = ::snow::CryptoResolver::resolve_rng(&::snow::DefaultResolver).unwrap();
     ::snow::types::Dh::generate(&mut *dh, &mut *rng);

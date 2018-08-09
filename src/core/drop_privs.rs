@@ -1,10 +1,8 @@
 use crate::core::Oxy;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use std::ffi::CString;
 
 impl Oxy {
-    crate fn drop_privs(&self) {
+    pub(crate) fn drop_privs(&self) {
         #[cfg(unix)]
         {
             for (k, _) in ::std::env::vars() {

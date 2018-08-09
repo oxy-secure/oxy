@@ -8,12 +8,12 @@ pub(crate) struct OxyArg {
 }
 
 impl OxyArg {
-    crate fn create(args: Vec<String>) -> OxyArg {
+    pub(crate) fn create(args: Vec<String>) -> OxyArg {
         let matches = OxyArg::make_matches(args);
         OxyArg { matches }
     }
 
-    crate fn make_matches(mut args: Vec<String>) -> ArgMatches<'static> {
+    pub(crate) fn make_matches(mut args: Vec<String>) -> ArgMatches<'static> {
         if let Ok(matches) = crate::arg::create_app().get_matches_from_safe(&args) {
             return matches;
         }
@@ -25,15 +25,15 @@ impl OxyArg {
         crate::arg::create_app().get_matches_from(&args)
     }
 
-    crate fn mode(&self) -> String {
+    pub(crate) fn mode(&self) -> String {
         self.matches.subcommand_name().unwrap().to_string()
     }
 
-    crate fn matches<R>(&self, callback: impl FnOnce(&ArgMatches<'static>) -> R) -> R {
+    pub(crate) fn matches<R>(&self, callback: impl FnOnce(&ArgMatches<'static>) -> R) -> R {
         (callback)(self.matches.subcommand_matches(self.mode()).unwrap())
     }
 
-    crate fn perspective(&self) -> EncryptionPerspective {
+    pub(crate) fn perspective(&self) -> EncryptionPerspective {
         match self.mode().as_str() {
             "reexec" => Bob,
             "server" => Bob,

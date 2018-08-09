@@ -1,8 +1,6 @@
 use super::{Oxy, PortStream};
 use byteorder::ByteOrder;
 use crate::message::OxyMessage::*;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use std::{cell::RefCell, rc::Rc};
 use transportation::{mio::net::TcpListener, BufferedTransport, Notifiable, Notifies};
 
@@ -47,13 +45,13 @@ impl super::Oxy {
                             data[5],
                             data[6],
                             data[7],
-                            byteorder::BE::read_u16(&data[8..10])
+                            ::byteorder::BE::read_u16(&data[8..10])
                         )
                     }
                     3 => {
                         let len = data[4] as usize;
                         let host = String::from_utf8(data[5..5 + len].to_vec()).unwrap();
-                        let port = byteorder::BE::read_u16(&data[5 + len..5 + len + 2]);
+                        let port = ::byteorder::BE::read_u16(&data[5 + len..5 + len + 2]);
                         dest = format!("{}:{}", host, port);
                     }
                     _ => panic!(),
@@ -75,13 +73,13 @@ impl super::Oxy {
     }
 }
 
-crate struct SocksBind {
-    crate listener: TcpListener,
+pub(crate) struct SocksBind {
+    pub(crate) listener: TcpListener,
 }
 
-crate struct SocksBindNotificationProxy {
-    crate oxy:   Oxy,
-    crate token: Rc<RefCell<u64>>,
+pub(crate) struct SocksBindNotificationProxy {
+    pub(crate) oxy:   Oxy,
+    pub(crate) token: Rc<RefCell<u64>>,
 }
 
 impl Notifiable for SocksBindNotificationProxy {
@@ -90,10 +88,10 @@ impl Notifiable for SocksBindNotificationProxy {
     }
 }
 
-crate struct SocksConnectionNotificationProxy {
-    crate oxy:   Oxy,
-    crate bt:    BufferedTransport,
-    crate state: Rc<RefCell<SocksState>>,
+pub(crate) struct SocksConnectionNotificationProxy {
+    pub(crate) oxy:   Oxy,
+    pub(crate) bt:    BufferedTransport,
+    pub(crate) state: Rc<RefCell<SocksState>>,
 }
 
 impl Notifiable for SocksConnectionNotificationProxy {
@@ -103,7 +101,7 @@ impl Notifiable for SocksConnectionNotificationProxy {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-crate enum SocksState {
+pub(crate) enum SocksState {
     Initial,
     Authed,
 }

@@ -1,8 +1,7 @@
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
+use libc;
 use std::ffi::{CStr, CString};
 
-crate fn format_throughput(bytes: u64, seconds: u64) -> String {
+pub(crate) fn format_throughput(bytes: u64, seconds: u64) -> String {
     let seconds = if seconds != 0 { seconds } else { 1 };
     let mut throughput = bytes / seconds;
     let mut throughput_decimal = (bytes * 10) / seconds;
@@ -28,7 +27,7 @@ crate fn format_throughput(bytes: u64, seconds: u64) -> String {
     format!("{}.{} {}", throughput, throughput_decimal % 10, unit)
 }
 
-crate fn format_bytes(bytes: u64) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     if bytes < 1024 {
         return format!("{} B", bytes);
     }
@@ -55,12 +54,12 @@ crate fn format_bytes(bytes: u64) -> String {
 }
 
 #[derive(Clone, Debug, Default)]
-crate struct Pwent {
-    crate name:  String,
-    crate uid:   u32,
-    crate gid:   u32,
-    crate home:  String,
-    crate shell: String,
+pub(crate) struct Pwent {
+    pub(crate) name:  String,
+    pub(crate) uid:   u32,
+    pub(crate) gid:   u32,
+    pub(crate) home:  String,
+    pub(crate) shell: String,
 }
 
 #[cfg(unix)]
@@ -80,20 +79,20 @@ fn extract_pwent(raw: *mut ::libc::passwd) -> Result<Pwent, ()> {
 }
 
 #[cfg(unix)]
-crate fn getpwnam(name: &str) -> Result<Pwent, ()> {
+pub(crate) fn getpwnam(name: &str) -> Result<Pwent, ()> {
     let name = CString::new(name).map_err(|_| ())?;
     let raw = unsafe { libc::getpwnam(name.as_ptr() as *const _) };
     extract_pwent(raw)
 }
 
 #[cfg(unix)]
-crate fn getpwuid(uid: u32) -> Result<Pwent, ()> {
+pub(crate) fn getpwuid(uid: u32) -> Result<Pwent, ()> {
     let raw = unsafe { libc::getpwuid(uid) };
     extract_pwent(raw)
 }
 
 #[cfg(unix)]
-crate fn current_user_pw() -> Result<Pwent, ()> {
+pub(crate) fn current_user_pw() -> Result<Pwent, ()> {
     let uid = unsafe { libc::getuid() };
     getpwuid(uid)
 }

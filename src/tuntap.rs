@@ -1,8 +1,6 @@
 use byteorder::{self, ByteOrder};
 use crate::core::Oxy;
 use libc::{c_ulong, ioctl};
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use nix::{
     errno::{errno, Errno},
     fcntl::{open, OFlag},
@@ -37,7 +35,7 @@ const IFF_NO_PI: u16 = 4096;
 const TUNSETIFF: c_ulong = 1074025674;
 
 impl TunTap {
-    crate fn create(mode: TunTapType, name: &str, reference_number: u64, oxy: Oxy) -> TunTap {
+    pub(crate) fn create(mode: TunTapType, name: &str, reference_number: u64, oxy: Oxy) -> TunTap {
         let fd = open("/dev/net/tun", OFlag::O_RDWR, Mode::empty()).unwrap();
         let mut buf = name.as_bytes().to_vec();
         assert!(buf.len() <= 16);
@@ -70,11 +68,11 @@ impl TunTap {
         result
     }
 
-    crate fn get_packets(&self) -> Vec<Vec<u8>> {
+    pub(crate) fn get_packets(&self) -> Vec<Vec<u8>> {
         self.packets.borrow_mut().split_off(0)
     }
 
-    crate fn send(&self, data: &[u8]) {
+    pub(crate) fn send(&self, data: &[u8]) {
         let result = write(self.fd, data);
         if result != Ok(data.len()) {
             warn!("Failed to write tunnel data: {:?}", result);

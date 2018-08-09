@@ -1,6 +1,4 @@
 use crate::core::Oxy;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 
 impl Oxy {
     pub(super) fn advertise_client_key(&self) {

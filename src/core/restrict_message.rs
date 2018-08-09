@@ -2,11 +2,9 @@ use crate::{
     core::Oxy,
     message::OxyMessage::{self, *},
 };
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 
 impl Oxy {
-    crate fn restrict_message(&self, message: OxyMessage) -> Result<OxyMessage, ()> {
+    pub(crate) fn restrict_message(&self, message: OxyMessage) -> Result<OxyMessage, ()> {
         if self.is_client() {
             return Ok(message);
         }

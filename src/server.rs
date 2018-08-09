@@ -1,6 +1,4 @@
 use crate::core::Oxy;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 #[cfg(unix)]
 use nix::{
     errno::Errno::ECHILD,
@@ -21,7 +19,7 @@ use transportation::{
     },
 };
 
-crate fn run() -> ! {
+pub(crate) fn run() -> ! {
     Server::create();
     transportation::run();
 }
@@ -386,13 +384,13 @@ impl Server {
     }
 }
 
-crate fn serve_one() {
+pub(crate) fn serve_one() {
     let server = Server::create();
     server.set_serve_one();
     transportation::run();
 }
 
-crate fn reverse_server() {
+pub(crate) fn reverse_server() {
     let stream = ::std::net::TcpStream::connect(&crate::arg::destination()).unwrap();
     trace!("Connected");
     Oxy::run(stream);

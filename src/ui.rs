@@ -1,5 +1,3 @@
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use shlex;
 use std::{cell::RefCell, fs::File, io::Write, rc::Rc, time::Instant};
 #[cfg(unix)]
@@ -11,12 +9,12 @@ use termion::{
 use transportation::{BufferedTransport, Notifiable, Notifies};
 
 #[derive(Clone)]
-crate struct Ui {
+pub(crate) struct Ui {
     internal: Rc<UiInternal>,
 }
 
 #[derive(Default)]
-crate struct UiInternal {
+pub(crate) struct UiInternal {
     notify_hook:         RefCell<Option<Rc<dyn Notifiable>>>,
     underlying:          RefCell<Option<BufferedTransport>>,
     messages:            RefCell<Vec<UiMessage>>,
@@ -38,7 +36,7 @@ struct UiPlatformData {
 struct UiPlatformData {}
 
 impl Ui {
-    crate fn create() -> Ui {
+    pub(crate) fn create() -> Ui {
         #[cfg(not(unix))]
         {
             unimplemented!();
@@ -56,7 +54,7 @@ impl Ui {
         }
     }
 
-    crate fn paint_progress_bar(&self, progress: u64, bytes: u64) {
+    pub(crate) fn paint_progress_bar(&self, progress: u64, bytes: u64) {
         #[cfg(unix)]
         {
             if progress < *self.internal.prev_progress.borrow_mut() {
@@ -115,7 +113,7 @@ impl Ui {
         }
     }
 
-    crate fn log_info(&self, message: &str) {
+    pub(crate) fn log_info(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
         info!("{}", message);
@@ -123,7 +121,7 @@ impl Ui {
         self.raw();
     }
 
-    crate fn log_debug(&self, message: &str) {
+    pub(crate) fn log_debug(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
         debug!("{}", message);
@@ -131,7 +129,7 @@ impl Ui {
         self.raw();
     }
 
-    crate fn log_warn(&self, message: &str) {
+    pub(crate) fn log_warn(&self, message: &str) {
         #[cfg(unix)]
         self.cooked();
         warn!("{}", message);
@@ -139,7 +137,7 @@ impl Ui {
         self.raw();
     }
 
-    crate fn pty_data(&self, data: &[u8]) {
+    pub(crate) fn pty_data(&self, data: &[u8]) {
         #[cfg(not(unix))]
         unimplemented!();
         #[cfg(unix)]
@@ -151,7 +149,7 @@ impl Ui {
         }
     }
 
-    crate fn pty_size(&self) -> (u16, u16) {
+    pub(crate) fn pty_size(&self) -> (u16, u16) {
         #[cfg(not(unix))]
         unimplemented!();
         // Maybe later we'll want to save space for other UI elements
@@ -160,7 +158,7 @@ impl Ui {
         terminal_size().unwrap()
     }
 
-    crate fn recv(&self) -> Option<UiMessage> {
+    pub(crate) fn recv(&self) -> Option<UiMessage> {
         if self.internal.messages.borrow_mut().len() == 0 {
             return None;
         }
@@ -168,7 +166,7 @@ impl Ui {
     }
 
     #[cfg(unix)]
-    crate fn cooked(&self) {
+    pub(crate) fn cooked(&self) {
         self.internal.platform.borrow_mut().raw.take();
     }
 
@@ -356,7 +354,7 @@ impl Notifies for Ui {
 }
 
 #[derive(Clone, Debug)]
-crate enum UiMessage {
+pub(crate) enum UiMessage {
     MetaCommand { parts: Vec<String> },
     RawInput { input: Vec<u8> },
 }

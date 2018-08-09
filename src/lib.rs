@@ -1,9 +1,32 @@
+#![feature(crate_in_paths)]
+
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate clap;
+#[macro_use]
+extern crate serde_derive;
+
+extern crate byteorder;
+extern crate data_encoding;
+extern crate dirs;
+extern crate env_logger;
+extern crate libc;
+extern crate libflate;
+extern crate linefeed;
+extern crate nix;
+extern crate num;
+extern crate parking_lot;
+extern crate ring;
+extern crate serde;
+extern crate serde_cbor;
+extern crate shlex;
+extern crate snow;
+extern crate termion;
+extern crate toml;
+extern crate transportation;
 
 mod arg;
 mod client;

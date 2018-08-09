@@ -9,8 +9,6 @@ use crate::{
 };
 #[cfg(unix)]
 use libc::off_t;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use std::{
     cell::RefCell,
     fs::{read_dir, symlink_metadata, File},
@@ -40,7 +38,7 @@ impl Oxy {
         borrow.splice(..start_len, hot_watchers.into_iter());
     }
 
-    crate fn claim_message(&self) {
+    pub(crate) fn claim_message(&self) {
         *self.internal.message_claim.borrow_mut() = true;
     }
 
@@ -312,7 +310,11 @@ impl Oxy {
                         fs::OpenOptions,
                         io::{Seek, SeekFrom},
                     };
-                    let mut file = OpenOptions::new().write(true).truncate(false).open(path).map_err(|_| "Open file failed")?;
+                    let mut file = OpenOptions::new()
+                        .write(true)
+                        .truncate(false)
+                        .open(path)
+                        .map_err(|_| "Open file failed")?;
                     file.seek(SeekFrom::Start(offset_start.unwrap())).unwrap();
                     file
                 };

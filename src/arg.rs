@@ -79,7 +79,7 @@ fn configure_subcommand() -> App<'static, 'static> {
         )
 }
 
-crate fn create_app() -> App<'static, 'static> {
+pub(crate) fn create_app() -> App<'static, 'static> {
     let metacommand = Arg::with_name("metacommand")
         .short("m")
         .long("metacommand")
@@ -244,7 +244,7 @@ fn create_matches() -> ArgMatches<'static> {
     create_app().get_matches()
 }
 
-crate fn batched_metacommands() -> Vec<String> {
+pub(crate) fn batched_metacommands() -> Vec<String> {
     let values = MATCHES.subcommand_matches(mode()).unwrap().values_of("metacommand");
     if values.is_none() {
         return Vec::new();
@@ -252,7 +252,7 @@ crate fn batched_metacommands() -> Vec<String> {
     values.unwrap().map(|x| x.to_string()).collect()
 }
 
-crate fn process() {
+pub(crate) fn process() {
     ::lazy_static::initialize(&MATCHES);
     let level = match matches().occurrences_of("verbose") {
         0 => "info",
@@ -266,19 +266,19 @@ crate fn process() {
     ::env_logger::try_init().ok();
 }
 
-crate fn mode() -> String {
+pub(crate) fn mode() -> String {
     MATCHES.subcommand_name().unwrap().to_string()
 }
 
-crate fn matches() -> &'static ArgMatches<'static> {
+pub(crate) fn matches() -> &'static ArgMatches<'static> {
     MATCHES.subcommand_matches(mode()).unwrap()
 }
 
-crate fn destination() -> String {
+pub(crate) fn destination() -> String {
     MATCHES.subcommand_matches(mode()).unwrap().value_of("destination").unwrap().to_string()
 }
 
-crate fn bind_address() -> String {
+pub(crate) fn bind_address() -> String {
     MATCHES
         .subcommand_matches(mode())
         .unwrap()

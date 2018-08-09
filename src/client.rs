@@ -1,13 +1,11 @@
 use crate::{arg, core::Oxy, keys};
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use std::{
     net::{TcpListener, TcpStream, UdpSocket},
     rc::Rc,
 };
 use transportation;
 
-crate fn knock(peer: &str) {
+pub(crate) fn knock(peer: &str) {
     let destinations = crate::conf::locate_destination(peer);
     let port = crate::conf::knock_port_for_dest(peer);
     if destinations.is_empty() {
@@ -30,7 +28,7 @@ crate fn knock(peer: &str) {
     ::std::thread::sleep(::std::time::Duration::from_millis(500));
 }
 
-crate fn run() {
+pub(crate) fn run() {
     if let Some(hops) = crate::arg::matches().values_of("via") {
         let mut prev = None;
         for hop in hops.into_iter().rev() {
@@ -48,7 +46,7 @@ crate fn run() {
     transportation::run();
 }
 
-crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
+pub(crate) fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
     #[cfg(unix)]
     {
         use crate::message::OxyMessage::*;
@@ -116,7 +114,7 @@ crate fn connect_via(proxy_daemon: Oxy, dest: &str) -> Oxy {
     unimplemented!();
 }
 
-crate fn connect(destination: &str) -> Oxy {
+pub(crate) fn connect(destination: &str) -> Oxy {
     knock(destination);
     let destinations = crate::conf::locate_destination(destination);
     let stream = TcpStream::connect(&destinations[..]);
@@ -130,7 +128,7 @@ crate fn connect(destination: &str) -> Oxy {
     peer
 }
 
-crate fn reverse_client() {
+pub(crate) fn reverse_client() {
     let acceptor = TcpListener::bind(&arg::bind_address()).unwrap();
     trace!("Bound");
     let (stream, _) = acceptor.accept().unwrap();

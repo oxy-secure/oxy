@@ -1,6 +1,4 @@
 use crate::{client, core::Oxy, message::OxyMessage::*};
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -14,7 +12,7 @@ use transportation;
 
 const PEER_TO_PEER_BUFFER_AMT: u64 = 1024 * 1024;
 
-crate fn run() -> ! {
+pub(crate) fn run() -> ! {
     CopyManager::create();
     transportation::run();
 }
@@ -157,7 +155,8 @@ impl CopyManager {
                             reference,
                             complete,
                             answers,
-                        } if *reference == id =>
+                        }
+                            if *reference == id =>
                         {
                             let tail: PathBuf = tail.clone().into();
                             for answer in answers {
