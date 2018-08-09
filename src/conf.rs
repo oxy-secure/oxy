@@ -477,11 +477,10 @@ crate fn knock_port_for_dest(dest: &str) -> u16 {
     if let Some(table) = server(dest) {
         if let Some(knock_port) = table.get("knock_port") {
             if let Some(knock_port) = knock_port.as_integer() {
-                if let Ok(knock_port) = ::std::convert::TryFrom::try_from(knock_port) {
-                    return knock_port;
-                } else {
-                    warn!("Invalid knock port in configuration");
+                if knock_port < 0 || knock_port > ::std::u16::MAX as i64 {
+                    panic!("Invalid knock port in configuration.");
                 }
+                return knock_port as u16;
             }
         }
     }
@@ -503,11 +502,10 @@ crate fn tcp_port_for_dest(dest: &str) -> u16 {
     if let Some(table) = server(dest) {
         if let Some(tcp_port) = table.get("tcp_port") {
             if let Some(tcp_port) = tcp_port.as_integer() {
-                if let Ok(tcp_port) = ::std::convert::TryFrom::try_from(tcp_port) {
-                    return tcp_port;
-                } else {
-                    warn!("Invalid tcp port in configuration");
+                if tcp_port < 0 || tcp_port > ::std::u16::MAX as i64 {
+                    panic!("Invalid TCP port");
                 }
+                return tcp_port as u16;
             }
         }
     }
@@ -529,11 +527,10 @@ crate fn server_knock_port() -> u16 {
         if let Some(table) = table.as_table() {
             if let Some(knock_port) = table.get("knock_port") {
                 if let Some(knock_port) = knock_port.as_integer() {
-                    if let Ok(knock_port) = ::std::convert::TryFrom::try_from(knock_port) {
-                        return knock_port;
-                    } else {
-                        warn!("Invalid knock port in configuration");
+                    if knock_port < 0 || knock_port > ::std::u16::MAX as i64 {
+                        panic!("Invalid knock port");
                     }
+                    return knock_port as u16;
                 } else {
                     warn!("Invalid knock port in configuration");
                 }
@@ -559,11 +556,10 @@ crate fn server_tcp_port() -> u16 {
         if let Some(table) = table.as_table() {
             if let Some(tcp_port) = table.get("tcp_port") {
                 if let Some(tcp_port) = tcp_port.as_integer() {
-                    if let Ok(tcp_port) = ::std::convert::TryFrom::try_from(tcp_port) {
-                        return tcp_port;
-                    } else {
-                        warn!("Invalid TCP port in configuration");
+                    if tcp_port < 0 || tcp_port > ::std::u16::MAX as i64 {
+                        panic!("Invalid TCP port");
                     }
+                    return tcp_port as u16;
                 } else {
                     warn!("Invalid TCP port in configuration");
                 }

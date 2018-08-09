@@ -1,8 +1,4 @@
-use clap::{crate_authors, crate_version, App, AppSettings, Arg, ArgMatches, SubCommand};
-use env_logger;
-use lazy_static::lazy_static;
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
+use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use std::env;
 
 lazy_static! {
@@ -267,7 +263,7 @@ crate fn process() {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", format!("oxy={}", level));
     }
-    env_logger::try_init().ok();
+    ::env_logger::try_init().ok();
 }
 
 crate fn mode() -> String {

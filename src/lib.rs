@@ -1,5 +1,9 @@
-#![feature(rust_2018_preview)]
-#![feature(try_from)]
+#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate clap;
 
 mod arg;
 mod client;
@@ -16,9 +20,6 @@ mod server;
 mod tuntap;
 mod ui;
 mod util;
-
-#[allow(unused_imports)]
-use log::{debug, error, info, log, trace, warn};
 
 pub fn run() {
     #[cfg(not(unix))]
