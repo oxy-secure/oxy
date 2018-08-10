@@ -5,15 +5,10 @@ mod metacommands;
 mod restrict_message;
 mod socks;
 
+use arg;
+use message::OxyMessage::{self, *};
 #[cfg(unix)]
-use ::pty::Pty;
-#[cfg(unix)]
-use ::tuntap::TunTap;
-use ::{
-    arg,
-    message::OxyMessage::{self, *},
-    ui::Ui,
-};
+use pty::Pty;
 use shlex;
 use std::{
     cell::RefCell,
@@ -24,6 +19,9 @@ use std::{
     time::{Duration, Instant},
 };
 use transportation::{self, mio::net::TcpListener, set_timeout, BufferedTransport, Notifiable, Notifies};
+#[cfg(unix)]
+use tuntap::TunTap;
+use ui::Ui;
 
 #[derive(Clone)]
 pub struct Oxy {
@@ -351,7 +349,7 @@ impl Oxy {
     }
 
     fn notify_ui(&self) {
-        use ::ui::UiMessage::*;
+        use ui::UiMessage::*;
         while let Some(msg) = self.internal.ui.borrow().as_ref().unwrap().recv() {
             match msg {
                 MetaCommand { parts } => {
@@ -692,9 +690,6 @@ impl Oxy {
                 self.handle_metacommand(vec!["D".to_string(), d.to_string()]);
             }
         }
-        if arg::matches().is_present("X Forwarding") {
-            self.initiate_x_forwarding();
-        }
         self.init_tuntap();
     }
 
@@ -716,52 +711,6 @@ impl Oxy {
                 }
             }
         }
-    }
-
-    fn initiate_x_forwarding(&self) {
-        warn!(r"X Forwarding counts on xauth to set a good umask. If xauth doesn't set a umask, there's a brief window where someone could steal an xauthority cookie out of /tmp. It sets umask on my system! ¯\_(ツ)_/¯");
-        let trust = if arg::matches().is_present("Trusted X Forwarding") {
-            "trusted"
-        } else {
-            "untrusted"
-        };
-        let mut nonce = [0u8; 8];
-        let rng = ::ring::rand::SystemRandom::new();
-        ::ring::rand::SecureRandom::fill(&rng, &mut nonce).unwrap();
-        let cookiefile = format!("/tmp/oxy-{}.xauth", ::data_encoding::HEXUPPER.encode(&nonce));
-        debug!("xauth cookie filename: {}", &cookiefile);
-        let xauth = ::std::process::Command::new("xauth")
-            .arg("-f")
-            .arg(&cookiefile)
-            .arg("generate")
-            .arg(":0")
-            .arg(".")
-            .arg(trust)
-            .arg("timeout")
-            .arg("3600")
-            .output();
-        if xauth.is_err() {
-            warn!("Failed to generate an xauthority cookie");
-            return;
-        }
-        let cookie = ::std::process::Command::new("xauth").arg("-f").arg(&cookiefile).arg("list").output();
-        if cookie.is_err() {
-            warn!("Failed to retrieve the xauthority cookie");
-            ::std::fs::remove_file(&cookiefile).ok();
-            return;
-        }
-        ::std::fs::remove_file(&cookiefile).unwrap();
-        let cookie = cookie.unwrap();
-        let cookie = String::from_utf8(cookie.stdout.clone());
-        if cookie.is_err() {
-            warn!("Failed to decode xauth output");
-        }
-        let cookie = cookie.unwrap();
-        let cookie = cookie.rsplit(" ").next().unwrap().to_string();
-        debug!("xcookie: {:?}", cookie);
-        self.send(AdvertiseXAuth { cookie });
-        self.handle_metacommand(vec!["sh".to_string(), "mkdir /tmp/.X11-unix".to_string()]);
-        self.handle_metacommand(vec!["R".to_string(), "/tmp/.X11-unix/X10".to_string(), "/tmp/.X11-unix/X0".to_string()]);
     }
 
     fn notify_keepalive(&self) {

@@ -1,14 +1,10 @@
 use super::{PortBind, PortStream};
-#[cfg(unix)]
-use ::pty::Pty;
-#[cfg(unix)]
-use ::tuntap::{TunTap, TunTapType};
-use ::{
-    core::Oxy,
-    message::OxyMessage::{self, *},
-};
+use core::Oxy;
 #[cfg(unix)]
 use libc::off_t;
+use message::OxyMessage::{self, *};
+#[cfg(unix)]
+use pty::Pty;
 use std::{
     cell::RefCell,
     fs::{read_dir, symlink_metadata, File},
@@ -28,6 +24,8 @@ use transportation::{
     },
     BufferedTransport, Notifies,
 };
+#[cfg(unix)]
+use tuntap::{TunTap, TunTapType};
 
 impl Oxy {
     fn dispatch_watchers(&self, message: &OxyMessage, message_number: u64) {
@@ -203,17 +201,6 @@ impl Oxy {
                     }
                     lock.flush().ok();
                 }
-            }
-            AdvertiseXAuth { cookie } => {
-                self.server_only();
-                ::std::process::Command::new("xauth")
-                    .arg("add")
-                    .arg(":10")
-                    .arg(".")
-                    .arg(&cookie)
-                    .output()
-                    .map_err(|_| "Xauth failed")?;
-                ::std::env::set_var("DISPLAY", ":10");
             }
             PipeCommandExited { reference: _ } => {
                 self.client_only();

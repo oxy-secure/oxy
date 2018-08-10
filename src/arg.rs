@@ -129,11 +129,6 @@ pub(crate) fn create_app() -> App<'static, 'static> {
         .multiple(true)
         .short("v")
         .help("Increase debugging output");
-    let xforward = Arg::with_name("X Forwarding").short("X").long("x-forwarding").help("Enable X forwarding");
-    let trusted_xforward = Arg::with_name("Trusted X Forwarding")
-        .short("Y")
-        .long("trusted-x-forwarding")
-        .help("Enable trusted X forwarding");
     let config = Arg::with_name("config")
         .long("config")
         .takes_value(true)
@@ -164,8 +159,6 @@ pub(crate) fn create_app() -> App<'static, 'static> {
         d_portfwd,
         tcp_port.clone(),
         knock_port.clone(),
-        xforward,
-        trusted_xforward,
         config.clone(),
         via,
         compression.clone(),

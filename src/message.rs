@@ -43,7 +43,6 @@ pub enum OxyMessage {
     FileHashData { reference: u64, digest: Vec<u8> },
     FileTruncateRequest { path: String, len: u64 },
     KnockForward { destination: String, knock: Vec<u8> },
-    AdvertiseXAuth { cookie: String },
     UsernameAdvertisement { username: String },
     CompressionRequest { compression_type: u64 },
     CompressionStart { compression_type: u64 },
