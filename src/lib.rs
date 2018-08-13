@@ -21,6 +21,7 @@ extern crate serde;
 extern crate serde_cbor;
 extern crate shlex;
 extern crate snow;
+#[cfg(unix)]
 extern crate termion;
 extern crate toml;
 extern crate transportation;
