@@ -27,7 +27,6 @@ nix = "0.11"
 libc = "0.2.40"
 data-encoding = "2.1.1"
 textwrap = { version = "0.10", features = ["term_size"] }
-parking_lot = { version = "0.6" }
 snow = "0.2.1"
 linefeed = "0.5"
 dirs = "1"

@@ -1,10 +1,8 @@
 use byteorder::{self, ByteOrder};
 use std::time::UNIX_EPOCH;
 
-use parking_lot::Mutex;
-
 lazy_static! {
-    static ref KNOCK_VALUES: Mutex<Vec<(u64, Option<String>, Vec<u8>)>> = Mutex::new(Vec::new());
+    static ref KNOCK_VALUES: ::std::sync::Mutex<Vec<(u64, Option<String>, Vec<u8>)>> = ::std::default::Default::default();
 }
 
 const KNOCK_ROTATION_TIME: u64 = 60;
@@ -49,6 +47,7 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
     timebytes -= minus;
     if let Some(x) = KNOCK_VALUES
         .lock()
+        .unwrap()
         .iter()
         .filter(|x| x.0 == timebytes && x.1 == peer.map(|x| x.to_string()))
         .next()
@@ -64,9 +63,12 @@ fn make_knock_internal(peer: Option<&str>, plus: u64, minus: u64) -> Vec<u8> {
     trace!("Using knock_data: {:?}", input);
     input.extend(&timebytes2);
     ::ring::pbkdf2::derive(&::ring::digest::SHA512, 1024, b"timeknock", &input[..], &mut result[..]);
-    KNOCK_VALUES.lock().push((timebytes, peer.map(|x| x.to_string()), result.clone()));
-    if KNOCK_VALUES.lock().len() > 100 {
-        KNOCK_VALUES.lock().remove(0);
+    KNOCK_VALUES
+        .lock()
+        .unwrap()
+        .push((timebytes, peer.map(|x| x.to_string()), result.clone()));
+    if KNOCK_VALUES.lock().unwrap().len() > 100 {
+        KNOCK_VALUES.lock().unwrap().remove(0);
     }
     result
 }

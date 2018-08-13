@@ -16,7 +16,6 @@ extern crate libflate;
 extern crate linefeed;
 extern crate nix;
 extern crate num;
-extern crate parking_lot;
 extern crate ring;
 extern crate serde;
 extern crate serde_cbor;
@@ -64,4 +63,4 @@ pub fn run() {
 }
 
 // Reexports:
-pub use ::core::Oxy;
+pub use core::Oxy;
