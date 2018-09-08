@@ -1,11 +1,9 @@
 [package]
 name = "oxy"
-version = "3.0.0-dev1"
+version = "3.0.0"
 authors = ["Jenna Magius <pyrosim@gmail.com>"]
 license = "BSD-2-Clause"
-description = "A security focused remote access tool."
-documentation = "https://oxy-secure.app/doc/oxy/"
-homepage = "https://oxy-secure.app"
+description = "A remote access tool."
 repository = "https://github.com/oxy-secure/oxy"
 
 [dependencies]
