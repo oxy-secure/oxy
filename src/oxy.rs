@@ -130,13 +130,13 @@ impl Oxy {
         packet: &[u8],
         callback: impl FnOnce(&mut [u8; 272]) -> T,
     ) -> Result<T, ()> {
-        // SECURITY, TODO: this is a long-lived key where the IV values are purely
-        // random and there's no mechanism to systematically prevent IV re-use.
+        // SECURITY, TODO: this is a long-lived key where the nonce values are purely
+        // random and there's no mechanism to systematically prevent nonce re-use.
         // That's not great! This layer protects conversation IDs and sequence
         // numbers, and conversation contents are separately encrypted inside
-        // this layer using ephemeral keys and systematic IVs.
+        // this layer using ephemeral keys and systematic nonces.
         //
-        // It'd be sweet to use XChaCha with its sick 24 byte IVs for this? The only
+        // It'd be sweet to use XChaCha with its sick 24 byte nonces for this? The only
         // reason I'm not doing that currently is because it's not out-of-the-box in
         // AEAD form in the libraries I looked at.
         //
@@ -152,12 +152,12 @@ impl Oxy {
         // stream cipher from the word go. That's about as lean as conceivable, I think.
         assert!(packet.len() == 300);
         let key = self.outer_key();
-        let iv = &packet[..12];
+        let nonce = &packet[..12];
         let tag = &packet[12..28];
         let body = &packet[28..300];
         let mut out_buf = [0u8; 272];
         let result =
-            ::chacha20_poly1305_aead::decrypt(&key, iv, b"", body, tag, &mut &mut out_buf[..]);
+            ::chacha20_poly1305_aead::decrypt(&key, nonce, b"", body, tag, &mut &mut out_buf[..]);
         if result.is_ok() {
             Ok(callback(&mut out_buf))
         } else {
@@ -170,10 +170,10 @@ impl Oxy {
         assert!(output.len() == 300);
         ::rand::Rng::fill(&mut ::rand::thread_rng(), &mut output[..12]);
         let key = self.outer_key();
-        let (iv, tail) = output.split_at_mut(12);
+        let (nonce, tail) = output.split_at_mut(12);
         let (tag, mut body) = tail.split_at_mut(16);
         tag.copy_from_slice(
-            &::chacha20_poly1305_aead::encrypt(&key, iv, b"", interior, &mut body).unwrap()[..],
+            &::chacha20_poly1305_aead::encrypt(&key, nonce, b"", interior, &mut body).unwrap()[..],
         );
     }
 
