@@ -16,6 +16,14 @@ pub struct Config {
     pub outer_key: Option<Vec<u8>>,
     /// The server to connect to as a client.
     pub destination: Option<String>,
+    /// The server public key
+    #[serde(with = "crate::base32")]
+    #[serde(default)]
+    pub remote_public_key: Option<Vec<u8>>,
+    /// The local private key
+    #[serde(with = "crate::base32")]
+    #[serde(default)]
+    pub local_private_key: Option<Vec<u8>>,
 }
 
 /// The modes in which an Oxy instance can run.

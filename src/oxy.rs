@@ -11,7 +11,9 @@ pub struct Oxy {
 struct OxyInternal {
     config: ::parking_lot::Mutex<crate::config::Config>,
     socket: ::parking_lot::Mutex<Option<::mio::net::UdpSocket>>,
+    socket_token: ::parking_lot::Mutex<Option<usize>>,
     immortality: ::parking_lot::Mutex<Option<Oxy>>,
+    noise: ::parking_lot::Mutex<Option<::snow::Session>>,
 }
 
 impl Oxy {
@@ -52,17 +54,36 @@ impl Oxy {
         let destination = self.i.config.lock().destination.as_ref().unwrap().clone();
         let destination: ::std::net::SocketAddr =
             ::std::net::ToSocketAddrs::to_socket_addrs(&destination)
-                .unwrap()
+                .expect("failed to resolve destination")
                 .next()
-                .unwrap();
-        let mut message = b"foo".to_vec();
-        message.resize(272, 0);
-        let mut send_buf = [0u8; 300];
-        self.outer_encrypt_packet(&message, &mut send_buf);
-        ::std::net::UdpSocket::bind("0.0.0.0:0")
+                .expect("no address for destination");
+        *self.i.noise.lock() = Some(
+            ::snow::Builder::new("Noise_IK_25519_AESGCM_SHA512".parse().unwrap())
+                .local_private_key(&self.local_private_key())
+                .remote_public_key(&self.remote_public_key())
+                .build_initiator()
+                .unwrap(),
+        );
+    }
+
+    fn local_private_key(&self) -> Vec<u8> {
+        self.i
+            .config
+            .lock()
+            .local_private_key
+            .as_ref()
             .unwrap()
-            .send_to(&send_buf, &destination)
-            .unwrap();
+            .clone()
+    }
+
+    fn remote_public_key(&self) -> Vec<u8> {
+        self.i
+            .config
+            .lock()
+            .remote_public_key
+            .as_ref()
+            .unwrap()
+            .clone()
     }
 
     fn init_server(&self) {
@@ -89,6 +110,7 @@ impl Oxy {
             .unwrap()
         });
         *self.i.socket.lock() = Some(socket);
+        *self.i.socket_token.lock() = Some(token);
     }
 
     fn mode(&self) -> crate::config::Mode {
@@ -101,16 +123,44 @@ impl Oxy {
         }
     }
 
+    fn process_mid_packet(&self, mid: &[u8; 296]) {
+        match self.mode() {
+            crate::config::Mode::Server => {
+                let mut conversation_id = [0u8; 8];
+                conversation_id[..].copy_from_slice(&mid[..8]);
+                let conversation_id = u64::from_le_bytes(conversation_id);
+                if conversation_id == 0 {
+                    // make a new conversation
+                } else if self.knows_conversation_id(conversation_id) {
+                    // dispatch the message to the conversation process.
+                } else {
+                    self.warn(|| {
+                        format!("Mid message for unknown conversation {}", conversation_id)
+                    });
+                }
+            }
+            crate::config::Mode::Client => {
+                // Feed the packet into the noise session
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn knows_conversation_id(&self, id: u64) -> bool {
+        unimplemented!();
+    }
+
     fn read_socket(&self) {
         loop {
-            let mut buf = [0u8; 300];
+            let mut buf = [0u8; 336];
             match self.i.socket.lock().as_ref().unwrap().recv_from(&mut buf) {
                 Ok((amt, _src)) => {
-                    if amt != 300 {
+                    if amt != 336 {
+                        self.warn(|| "Read less than one message worth in one call.");
                         continue;
                     }
-                    let decrypt = self.outer_decrypt_packet(&buf, |inner| {
-                        self.info(|| format!("Decrypted: {:?}", &inner[..]));
+                    let decrypt = self.decrypt_outer_packet(&buf, |mid| {
+                        self.process_mid_packet(mid);
                     });
                     if decrypt.is_err() {
                         self.warn(|| "Rejecting packet with bad tag.");
@@ -120,61 +170,27 @@ impl Oxy {
                     if err.kind() == ::std::io::ErrorKind::WouldBlock {
                         break;
                     }
+                    self.warn(|| format!("Error reading socket: {:?}", err));
                 }
             }
         }
     }
 
-    fn outer_decrypt_packet<T>(
+    fn decrypt_outer_packet<T>(
         &self,
         packet: &[u8],
-        callback: impl FnOnce(&mut [u8; 272]) -> T,
+        callback: impl FnOnce(&mut [u8; 296]) -> T,
     ) -> Result<T, ()> {
-        // SECURITY, TODO: this is a long-lived key where the nonce values are purely
-        // random and there's no mechanism to systematically prevent nonce re-use.
-        // That's not great! This layer protects conversation IDs and sequence
-        // numbers, and conversation contents are separately encrypted inside
-        // this layer using ephemeral keys and systematic nonces.
-        //
-        // It'd be sweet to use XChaCha with its sick 24 byte nonces for this? The only
-        // reason I'm not doing that currently is because it's not out-of-the-box in
-        // AEAD form in the libraries I looked at.
-        //
-        // Even sending lots of packets, 12 byte collisions should be _relatively_
-        // rare. Nevertheless, there should be some trickery we can do later to make
-        // this layer stronger.
-        //
-        // This is like this to support a single conversation roaming source IPs
-        // without the client having to know when it has roamed or incurring any RTTs
-        // when roaming happens. It also keeps the unauth surface area for exploits as
-        // small as possible - even if there was an RCE in the ECDH implementation that
-        // could be popped with a crafted public key, with this design it's nothing but
-        // stream cipher from the word go. That's about as lean as conceivable, I think.
-        assert!(packet.len() == 300);
         let key = self.outer_key();
-        let nonce = &packet[..12];
-        let tag = &packet[12..28];
-        let body = &packet[28..300];
-        let mut out_buf = [0u8; 272];
-        let result =
-            ::chacha20_poly1305_aead::decrypt(&key, nonce, b"", body, tag, &mut &mut out_buf[..]);
-        if result.is_ok() {
-            Ok(callback(&mut out_buf))
-        } else {
-            Err(())
-        }
+        crate::outer::decrypt_outer_packet(&key, packet, callback)
     }
 
-    fn outer_encrypt_packet(&self, interior: &[u8], output: &mut [u8]) {
-        // See security note in outer_decrypt_packet
-        assert!(output.len() == 300);
-        ::rand::Rng::fill(&mut ::rand::thread_rng(), &mut output[..12]);
+    fn encrypt_outer_packet<T, R>(&self, interior: &[u8], callback: T) -> R
+    where
+        T: FnOnce(&mut [u8; 336]) -> R,
+    {
         let key = self.outer_key();
-        let (nonce, tail) = output.split_at_mut(12);
-        let (tag, mut body) = tail.split_at_mut(16);
-        tag.copy_from_slice(
-            &::chacha20_poly1305_aead::encrypt(&key, nonce, b"", interior, &mut body).unwrap()[..],
-        );
+        crate::outer::encrypt_outer_packet(&key, interior, callback)
     }
 
     fn outer_key(&self) -> Vec<u8> {
