@@ -123,7 +123,7 @@ impl Oxy {
         }
     }
 
-    fn process_mid_packet(&self, mid: &[u8; 296]) {
+    fn process_mid_packet(&self, mid: &[u8]) {
         match self.mode() {
             crate::config::Mode::Server => {
                 let mut conversation_id = [0u8; 8];
@@ -152,10 +152,10 @@ impl Oxy {
 
     fn read_socket(&self) {
         loop {
-            let mut buf = [0u8; 336];
+            let mut buf = [0u8; crate::outer::OUTER_PACKET_SIZE];
             match self.i.socket.lock().as_ref().unwrap().recv_from(&mut buf) {
                 Ok((amt, _src)) => {
-                    if amt != 336 {
+                    if amt != crate::outer::OUTER_PACKET_SIZE {
                         self.warn(|| "Read less than one message worth in one call.");
                         continue;
                     }
@@ -179,7 +179,7 @@ impl Oxy {
     fn decrypt_outer_packet<T>(
         &self,
         packet: &[u8],
-        callback: impl FnOnce(&mut [u8; 296]) -> T,
+        callback: impl FnOnce(&mut [u8]) -> T,
     ) -> Result<T, ()> {
         let key = self.outer_key();
         crate::outer::decrypt_outer_packet(&key, packet, callback)
@@ -187,7 +187,7 @@ impl Oxy {
 
     fn encrypt_outer_packet<T, R>(&self, interior: &[u8], callback: T) -> R
     where
-        T: FnOnce(&mut [u8; 336]) -> R,
+        T: FnOnce(&mut [u8]) -> R,
     {
         let key = self.outer_key();
         crate::outer::encrypt_outer_packet(&key, interior, callback)
