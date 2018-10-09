@@ -4,12 +4,12 @@
 /// + Sync and internally mutable.
 #[derive(Default, Clone)]
 pub struct Oxy {
-    i: ::std::sync::Arc<OxyInternal>,
+    pub(crate) i: ::std::sync::Arc<OxyInternal>,
 }
 
 #[derive(Default)]
-struct OxyInternal {
-    config: ::parking_lot::Mutex<crate::config::Config>,
+pub(crate) struct OxyInternal {
+    pub(crate) config: ::parking_lot::Mutex<crate::config::Config>,
     socket: ::parking_lot::Mutex<Option<::mio::net::UdpSocket>>,
     socket_token: ::parking_lot::Mutex<Option<usize>>,
     immortality: ::parking_lot::Mutex<Option<Oxy>>,
@@ -64,26 +64,6 @@ impl Oxy {
                 .build_initiator()
                 .unwrap(),
         );
-    }
-
-    fn local_private_key(&self) -> Vec<u8> {
-        self.i
-            .config
-            .lock()
-            .local_private_key
-            .as_ref()
-            .unwrap()
-            .clone()
-    }
-
-    fn remote_public_key(&self) -> Vec<u8> {
-        self.i
-            .config
-            .lock()
-            .remote_public_key
-            .as_ref()
-            .unwrap()
-            .clone()
     }
 
     fn init_server(&self) {
@@ -174,27 +154,6 @@ impl Oxy {
                 }
             }
         }
-    }
-
-    fn decrypt_outer_packet<T>(
-        &self,
-        packet: &[u8],
-        callback: impl FnOnce(&mut [u8]) -> T,
-    ) -> Result<T, ()> {
-        let key = self.outer_key();
-        crate::outer::decrypt_outer_packet(&key, packet, callback)
-    }
-
-    fn encrypt_outer_packet<T, R>(&self, interior: &[u8], callback: T) -> R
-    where
-        T: FnOnce(&mut [u8]) -> R,
-    {
-        let key = self.outer_key();
-        crate::outer::encrypt_outer_packet(&key, interior, callback)
-    }
-
-    fn outer_key(&self) -> Vec<u8> {
-        self.i.config.lock().outer_key.as_ref().unwrap().clone()
     }
 }
 

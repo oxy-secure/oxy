@@ -9,10 +9,12 @@
 extern crate serde_derive;
 
 pub mod arg;
-mod base32;
 pub mod config;
 pub mod entry;
+pub mod oxy;
+
+mod base32;
 mod inner;
 mod log;
 mod outer;
-pub mod oxy;
+mod oxyhelpers;
